@@ -1,0 +1,1804 @@
+"use client"
+
+import { useEffect, useState, useCallback } from 'react'
+import { useRouter, useParams } from 'next/navigation'
+import Link from 'next/link'
+import { useAuth } from '@/components/providers/auth-provider'
+import { useSocket } from '@/components/providers/socket-provider'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import { useToast } from '@/hooks/use-toast'
+import { formatDate, formatTime, cn } from '@/lib/utils'
+import { 
+  ArrowLeft,
+  Calendar, 
+  MapPin, 
+  Users, 
+  ChefHat,
+  MessageCircle,
+  ClipboardList,
+  BarChart3,
+  Loader2,
+  Copy,
+  ExternalLink,
+  Plus,
+  Check,
+  X,
+  Send,
+  Sparkles,
+  Gift,
+  Share2,
+  Printer
+} from 'lucide-react'
+
+// Types
+interface User {
+  id: string
+  name: string
+  avatar?: string
+}
+
+interface Contribution {
+  id: string
+  title: string
+  description?: string
+  category?: string
+  quantity: number
+  status: 'PLANNED' | 'CONFIRMED' | 'BROUGHT'
+  assignee?: User
+}
+
+interface PollOption {
+  id: string
+  label: string
+  voteCount: number
+}
+
+interface Poll {
+  id: string
+  title: string
+  description?: string
+  type: 'SINGLE' | 'MULTIPLE'
+  isClosed: boolean
+  options: PollOption[]
+  hasVoted: boolean
+  userVotes: string[]
+}
+
+interface Task {
+  id: string
+  title: string
+  description?: string
+  status: 'TODO' | 'IN_PROGRESS' | 'DONE'
+  assignee?: User
+  dueDate?: string
+}
+
+interface ChatMessage {
+  id: string
+  content: string
+  createdAt: string
+  user: User
+}
+
+interface Event {
+  id: string
+  name: string
+  description?: string
+  date: string
+  endDate?: string
+  location?: string
+  mapUrl?: string
+  status: 'DRAFT' | 'OPEN' | 'CLOSED'
+  participants: User[]
+  contributions: Contribution[]
+  polls: Poll[]
+  tasks: Task[]
+  chatMessages: ChatMessage[]
+  eventCodes?: { code: string }[]
+}
+
+export default function EventPage() {
+  const params = useParams()
+  const rawEventId = params?.id
+  const eventId = Array.isArray(rawEventId) ? rawEventId[0] : rawEventId
+  const router = useRouter()
+  const { user, isLoading: authLoading, isAuthenticated } = useAuth()
+  const { socket, joinEvent, leaveEvent } = useSocket()
+  const { toast } = useToast()
+  
+  const [event, setEvent] = useState<Event | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [activeTab, setActiveTab] = useState<'contributions' | 'polls' | 'tasks' | 'chat'>('contributions')
+  const [isContribDialogOpen, setIsContribDialogOpen] = useState(false)
+  const [sortCategory, setSortCategory] = useState<string | null>(null)
+  const [editingContribId, setEditingContribId] = useState<string | null>(null)
+  const [editingContrib, setEditingContrib] = useState({ title: '', description: '', category: 'plat' })
+  const [selectedContribForDetail, setSelectedContribForDetail] = useState<Contribution | null>(null)
+  
+  // Form states
+  const [newContribution, setNewContribution] = useState({ title: '', description: '', category: 'plat', imageUrl: '', contribImagePreview: '' })
+  const [newTask, setNewTask] = useState({ title: '', description: '', isPrivate: false, dueDate: '' })
+  const [isTaskDialogOpen, setIsTaskDialogOpen] = useState(false)
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null)
+  const [editingTask, setEditingTask] = useState({ title: '', description: '', dueDate: '' })
+  const [isEditTaskDialogOpen, setIsEditTaskDialogOpen] = useState(false)
+  const [newPoll, setNewPoll] = useState({ title: '', description: '', type: 'SINGLE', options: ['', ''], imageUrl: '', pollImagePreview: '' })
+  const [isPollDialogOpen, setIsPollDialogOpen] = useState(false)
+  const [newMessage, setNewMessage] = useState('')
+  const [chatImageUrls, setChatImageUrls] = useState<string[]>([])
+  const [chatImagePreviews, setChatImagePreviews] = useState<string[]>([])
+  const [selectedVotes, setSelectedVotes] = useState<Record<string, string[]>>({})
+  // Fetch event data
+  const fetchEvent = useCallback(async () => {
+    try {
+      if (!eventId) return
+      const response = await fetch(`/api/events/${eventId}`, {
+        credentials: 'include',
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        setEvent(data.event)
+        
+        // Initialize selected votes
+        const votes: Record<string, string[]> = {}
+        data.event.polls.forEach((poll: Poll) => {
+          votes[poll.id] = poll.userVotes || []
+        })
+        setSelectedVotes(votes)
+      } else if (response.status === 401 || response.status === 403) {
+        router.push('/dashboard')
+      }
+    } catch (error) {
+      console.error('Failed to fetch event:', error)
+      toast({
+        title: 'Erreur',
+        description: 'Impossible de charger l\'événement',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsLoading(false)
+    }
+  }, [eventId, router, toast])
+
+  useEffect(() => {
+    if (!authLoading && !isAuthenticated) {
+      router.push('/login')
+    }
+  }, [authLoading, isAuthenticated, router])
+
+  useEffect(() => {
+    if (!isAuthenticated || !eventId) return
+
+    fetchEvent()
+    joinEvent(eventId)
+
+    return () => {
+      leaveEvent(eventId)
+    }
+  }, [isAuthenticated, eventId, fetchEvent, joinEvent, leaveEvent])
+
+  useEffect(() => {
+    if (!eventId && !authLoading) {
+      router.push('/dashboard')
+    }
+  }, [eventId, authLoading, router])
+
+  // Socket listeners for real-time updates
+  useEffect(() => {
+    if (!socket) return
+
+    socket.on('contribution-update', fetchEvent)
+    socket.on('poll-update', fetchEvent)
+    socket.on('task-update', fetchEvent)
+    socket.on('new-message', fetchEvent)
+
+    return () => {
+      socket.off('contribution-update')
+      socket.off('poll-update')
+      socket.off('task-update')
+      socket.off('new-message')
+    }
+  }, [socket, fetchEvent])
+
+  // Image upload handlers
+  const uploadImage = async (file: File, type: 'contribution' | 'poll' | 'chat'): Promise<string> => {
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('eventId', eventId || '')
+
+    const endpoint = `/api/${type === 'contribution' ? 'contributions' : type === 'poll' ? 'polls' : 'chat'}/upload`
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      credentials: 'include',
+      body: formData,
+    })
+
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || 'Erreur lors du téléchargement')
+    }
+
+    const data = await response.json()
+    return data.imageUrl
+  }
+
+  const handleContributionImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    try {
+      toast({
+        title: 'Téléchargement...',
+        description: 'Conversion en WebP en cours',
+      })
+
+      const imageUrl = await uploadImage(file, 'contribution')
+      setNewContribution({
+        ...newContribution,
+        imageUrl,
+        contribImagePreview: URL.createObjectURL(file),
+      })
+
+      toast({
+        title: 'Image téléchargée ! ✨',
+        description: 'Photo convertie en WebP pour optimiser l\'espace',
+        variant: 'success',
+      })
+    } catch (error) {
+      toast({
+        title: 'Erreur',
+        description: error instanceof Error ? error.message : 'Impossible de télécharger l\'image',
+        variant: 'destructive',
+      })
+    }
+  }
+
+  const handlePollImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    try {
+      toast({
+        title: 'Téléchargement...',
+        description: 'Conversion en WebP en cours',
+      })
+
+      const imageUrl = await uploadImage(file, 'poll')
+      setNewPoll({
+        ...newPoll,
+        imageUrl,
+        pollImagePreview: URL.createObjectURL(file),
+      })
+
+      toast({
+        title: 'Image téléchargée ! ✨',
+        description: 'Photo convertie en WebP pour optimiser l\'espace',
+        variant: 'success',
+      })
+    } catch (error) {
+      toast({
+        title: 'Erreur',
+        description: error instanceof Error ? error.message : 'Impossible de télécharger l\'image',
+        variant: 'destructive',
+      })
+    }
+  }
+
+  const handleChatImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files) return
+
+    try {
+      const newUrls = [...chatImageUrls]
+      const newPreviews = [...chatImagePreviews]
+
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i]
+        toast({
+          title: 'Téléchargement...',
+          description: `Photo ${i + 1} en cours`,
+        })
+
+        const imageUrl = await uploadImage(file, 'chat')
+        newUrls.push(imageUrl)
+        newPreviews.push(URL.createObjectURL(file))
+      }
+
+      setChatImageUrls(newUrls)
+      setChatImagePreviews(newPreviews)
+
+      toast({
+        title: 'Images téléchargées ! ✨',
+        description: 'Photos converties en WebP',
+        variant: 'success',
+      })
+    } catch (error) {
+      toast({
+        title: 'Erreur',
+        description: error instanceof Error ? error.message : 'Impossible de télécharger les images',
+        variant: 'destructive',
+      })
+    }
+  }
+
+  // Handlers
+  const handleAddContribution = async () => {
+    if (!eventId) {
+      toast({
+        title: 'Erreur',
+        description: 'Impossible de retrouver l\'événement actif.',
+        variant: 'destructive',
+      })
+      return
+    }
+    if (!newContribution.title.trim()) {
+      toast({
+        title: 'Titre requis',
+        description: 'Veuillez donner un titre à votre contribution',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    try {
+      const response = await fetch('/api/contributions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          title: newContribution.title,
+          description: newContribution.description,
+          category: newContribution.category,
+          imageUrl: newContribution.imageUrl,
+          eventId,
+        }),
+      })
+
+      if (response.ok) {
+        toast({
+          title: 'Contribution ajoutée ! 🎉',
+          description: 'Merci pour votre participation',
+          variant: 'success',
+        })
+        setNewContribution({ title: '', description: '', category: 'plat', imageUrl: '', contribImagePreview: '' })
+        setIsContribDialogOpen(false)
+        fetchEvent()
+      }
+    } catch (error) {
+      toast({
+        title: 'Erreur',
+        description: 'Impossible d\'ajouter la contribution',
+        variant: 'destructive',
+      })
+    }
+  }
+
+  const handleUpdateContributionStatus = async (id: string, status: string) => {
+    try {
+      await fetch(`/api/contributions/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ status }),
+      })
+      fetchEvent()
+      toast({
+        title: 'Statut mis à jour',
+        variant: 'success',
+      })
+    } catch (error) {
+      toast({
+        title: 'Erreur',
+        description: 'Impossible de mettre à jour',
+        variant: 'destructive',
+      })
+    }
+  }
+
+  const handleEditContribution = (contrib: Contribution) => {
+    setEditingContribId(contrib.id)
+    setEditingContrib({ 
+      title: contrib.title, 
+      description: contrib.description || '', 
+      category: contrib.category || 'plat' 
+    })
+  }
+
+  const handleSaveContribution = async () => {
+    if (!editingContribId) return
+    if (!editingContrib.title.trim()) {
+      toast({
+        title: 'Titre requis',
+        description: 'Veuillez donner un titre à votre contribution',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    try {
+      const response = await fetch(`/api/contributions/${editingContribId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          title: editingContrib.title,
+          description: editingContrib.description,
+          category: editingContrib.category,
+        }),
+      })
+
+      if (response.ok) {
+        toast({
+          title: 'Contribution mise à jour ! ✨',
+          description: 'Vos modifications ont été enregistrées',
+          variant: 'success',
+        })
+        setEditingContribId(null)
+        fetchEvent()
+      }
+    } catch (error) {
+      toast({
+        title: 'Erreur',
+        description: 'Impossible de mettre à jour la contribution',
+        variant: 'destructive',
+      })
+    }
+  }
+
+  const handleVote = async (pollId: string) => {
+    const optionIds = selectedVotes[pollId]
+    if (!optionIds || optionIds.length === 0) {
+      toast({
+        title: 'Sélection requise',
+        description: 'Veuillez choisir une option',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    try {
+      await fetch(`/api/polls/${pollId}/vote`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ optionIds }),
+      })
+      fetchEvent()
+      toast({
+        title: 'Vote enregistré ! 🗳️',
+        variant: 'success',
+      })
+    } catch (error) {
+      toast({
+        title: 'Erreur',
+        description: 'Impossible de voter',
+        variant: 'destructive',
+      })
+    }
+  }
+
+  const handleUpdateTaskStatus = async (id: string, status: string) => {
+    console.log('Updating task', id, 'to', status)
+    try {
+      const res = await fetch(`/api/tasks/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ status }),
+      })
+      if (res.ok) {
+        toast({ title: 'Statut mis à jour', variant: 'success' })
+        fetchEvent()
+      } else {
+        let errMsg = 'Impossible de mettre à jour la tâche'
+        try { const data = await res.json(); if (data?.error) errMsg = data.error } catch(e) {}
+        console.error('Update task failed', res.status, errMsg)
+        toast({ title: 'Erreur', description: errMsg, variant: 'destructive' })
+      }
+    } catch (error) {
+      console.error('Update task network error', error)
+      toast({ title: 'Erreur', variant: 'destructive' })
+    }
+  }
+
+  const handleCreateTask = async () => {
+    if (!eventId) {
+      toast({
+        title: 'Erreur',
+        description: 'Impossible de créer une tâche sans événement.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    if (!newTask.title.trim()) {
+      toast({
+        title: 'Titre requis',
+        description: 'Veuillez donner un titre à votre tâche',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    try {
+      const response = await fetch(`/api/tasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          eventId,
+          title: newTask.title.trim(),
+          description: newTask.description.trim(),
+          isPrivate: newTask.isPrivate,
+          dueDate: newTask.dueDate ? new Date(newTask.dueDate).toISOString() : undefined,
+        }),
+      })
+
+      if (response.ok) {
+        toast({
+          title: 'Succès',
+          description: 'Tâche créée avec succès',
+        })
+        setNewTask({ title: '', description: '', isPrivate: false, dueDate: '' })
+        setIsTaskDialogOpen(false)
+        fetchEvent()
+      } else {
+        toast({
+          title: 'Erreur',
+          description: 'Impossible de créer la tâche',
+          variant: 'destructive',
+        })
+      }
+    } catch (error) {
+      toast({
+        title: 'Erreur',
+        variant: 'destructive',
+      })
+    }
+  }
+
+  const handleSaveTask = async () => {
+    if (!editingTaskId) return
+    if (!editingTask.title.trim()) {
+      toast({ title: 'Titre requis', description: 'Veuillez donner un titre', variant: 'destructive' })
+      return
+    }
+
+    try {
+      const res = await fetch(`/api/tasks/${editingTaskId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          title: editingTask.title.trim(),
+          description: editingTask.description.trim(),
+          dueDate: editingTask.dueDate ? new Date(editingTask.dueDate).toISOString() : null,
+        }),
+      })
+
+      if (res.ok) {
+        toast({ title: 'Tâche modifiée', variant: 'success' })
+        setIsEditTaskDialogOpen(false)
+        setEditingTaskId(null)
+        setEditingTask({ title: '', description: '', dueDate: '' })
+        fetchEvent()
+      } else {
+        let errMsg = 'Impossible de modifier la tâche'
+        try { const data = await res.json(); if (data?.error) errMsg = data.error } catch(e) {}
+        toast({ title: 'Erreur', description: errMsg, variant: 'destructive' })
+      }
+    } catch (error) {
+      toast({ title: 'Erreur', variant: 'destructive' })
+    }
+  }
+
+  const handleCreatePoll = async () => {
+    console.log('handleCreatePoll invoked', newPoll)
+    if (!eventId) {
+      toast({
+        title: 'Erreur',
+        description: 'Impossible de créer un sondage sans événement.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    if (!newPoll.title.trim()) {
+      toast({
+        title: 'Titre requis',
+        description: 'Veuillez donner un titre à votre sondage',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    const validOptions = newPoll.options.filter(o => o.trim())
+    if (validOptions.length < 2) {
+      toast({
+        title: 'Options insuffisantes',
+        description: 'Veuillez ajouter au moins 2 options',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    try {
+      const response = await fetch(`/api/polls`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          eventId,
+          title: newPoll.title.trim(),
+          description: newPoll.description.trim(),
+          type: newPoll.type,
+          imageUrl: newPoll.imageUrl,
+          options: validOptions,
+        }),
+      })
+
+      if (response.ok) {
+        toast({
+          title: 'Succès',
+          description: 'Sondage créé avec succès',
+        })
+        setNewPoll({ title: '', description: '', type: 'SINGLE', options: ['', ''], imageUrl: '', pollImagePreview: '' })
+        setIsPollDialogOpen(false)
+        fetchEvent()
+      } else {
+        let errMsg = 'Impossible de créer le sondage'
+        try {
+          const data = await response.json()
+          if (data?.error) errMsg = data.error
+        } catch (e) {
+          // ignore
+        }
+        console.error('Create poll failed', response.status, errMsg)
+        toast({
+          title: 'Erreur',
+          description: errMsg,
+          variant: 'destructive',
+        })
+      }
+    } catch (error) {
+      toast({
+        title: 'Erreur',
+        variant: 'destructive',
+      })
+    }
+  }
+
+  const handleSendMessage = async () => {
+    if (!eventId) {
+      toast({
+        title: 'Erreur',
+        description: 'Impossible d\'envoyer un message sans événement.',
+        variant: 'destructive',
+      })
+      return
+    }
+    if (!newMessage.trim() && chatImageUrls.length === 0) return
+
+    try {
+      await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          content: newMessage.trim(),
+          eventId,
+          imageUrls: chatImageUrls,
+        }),
+      })
+      setNewMessage('')
+      setChatImageUrls([])
+      setChatImagePreviews([])
+      fetchEvent()
+    } catch (error) {
+      toast({
+        title: 'Erreur',
+        description: 'Impossible d\'envoyer le message',
+        variant: 'destructive',
+      })
+    }
+  }
+
+  const handleCopyCode = (code: string) => {
+    navigator.clipboard.writeText(code)
+    toast({
+      title: 'Code copié ! 📋',
+      description: 'Partagez-le avec votre famille',
+    })
+  }
+
+  const handlePrint = () => {
+    window.print()
+  }
+
+  if (authLoading || isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center space-y-4">
+          <Loader2 className="h-12 w-12 animate-spin text-christmas-red mx-auto" />
+          <p className="text-xl">Chargement...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (!event) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Card className="p-8 text-center">
+          <h2 className="text-2xl font-bold mb-4">Événement non trouvé</h2>
+          <Link href="/dashboard">
+            <Button>Retour au tableau de bord</Button>
+          </Link>
+        </Card>
+      </div>
+    )
+  }
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'PLANNED': return 'bg-yellow-100 text-yellow-800'
+      case 'CONFIRMED': return 'bg-blue-100 text-blue-800'
+      case 'BROUGHT': return 'bg-green-100 text-green-800'
+      case 'TODO': return 'bg-gray-100 text-gray-800'
+      case 'IN_PROGRESS': return 'bg-blue-100 text-blue-800'
+      case 'DONE': return 'bg-green-100 text-green-800'
+      default: return 'bg-gray-100 text-gray-800'
+    }
+  }
+
+  const getStatusLabel = (status: string) => {
+    switch (status) {
+      case 'PLANNED': return 'Prévu'
+      case 'CONFIRMED': return 'Confirmé'
+      case 'BROUGHT': return 'Apporté'
+      case 'TODO': return 'À faire'
+      case 'IN_PROGRESS': return 'En cours'
+      case 'DONE': return 'Terminé'
+      default: return status
+    }
+  }
+
+  const getCategoryIcon = (category?: string) => {
+    switch (category) {
+      case 'plat': return '🍽️'
+      case 'boisson': return '🍷'
+      case 'décor': return '🎄'
+      default: return '🎁'
+    }
+  }
+
+  return (
+    <div className="min-h-screen bg-transparent print:bg-white">
+      {/* Header */}
+      <header className="sticky top-0 z-50 bg-white/95 backdrop-blur border-b-2 border-christmas-red shadow-sm no-print">
+        <div className="container mx-auto px-4 py-4">
+          <div className="flex items-center justify-between">
+            <Link href="/dashboard">
+              <Button variant="outline" className="gap-2">
+                <ArrowLeft className="h-5 w-5" />
+                Retour
+              </Button>
+            </Link>
+
+            <div className="flex items-center gap-2">
+              {event.eventCodes && event.eventCodes.length > 0 && (
+                <Button
+                  variant="outline"
+                  onClick={() => handleCopyCode(event.eventCodes![0].code)}
+                  className="gap-2"
+                >
+                  <Share2 className="h-4 w-4" />
+                  <span className="hidden sm:inline">Inviter</span>
+                </Button>
+              )}
+              <Button variant="outline" onClick={handlePrint} className="gap-2">
+                <Printer className="h-4 w-4" />
+                <span className="hidden sm:inline">Imprimer</span>
+              </Button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main className="container mx-auto px-4 py-6 max-w-5xl">
+        {/* Event Header */}
+        <div className="mb-8 space-y-4 print:mb-4 bg-white/90 p-6 rounded-xl shadow-sm backdrop-blur-sm">
+          <div className="flex items-start justify-between">
+            <div>
+              <h1 className="text-3xl font-bold text-christmas-red flex items-center gap-3">
+                🎄 {event.name}
+              </h1>
+              {event.description && (
+                <p className="text-lg text-gray-600 mt-2">
+                  {event.description}
+                </p>
+              )}
+            </div>
+            <span className={cn(
+              'px-3 py-1 rounded-full text-sm font-medium',
+              event.status === 'OPEN' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+            )}>
+              {event.status === 'OPEN' ? '✨ Ouvert' : 'Terminé'}
+            </span>
+          </div>
+
+          <div className="flex flex-wrap gap-6 text-gray-700">
+            <div className="flex items-center gap-2">
+              <Calendar className="h-5 w-5 text-christmas-red" />
+              <span>
+                {formatDate(event.date)} à {formatTime(event.date)}
+              </span>
+            </div>
+            {event.location && (
+              <div className="flex items-center gap-2">
+                <MapPin className="h-5 w-5 text-christmas-green" />
+                {event.mapUrl ? (
+                  <a
+                    href={event.mapUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-600 hover:underline flex items-center gap-1"
+                  >
+                    {event.location}
+                    <ExternalLink className="h-4 w-4" />
+                  </a>
+                ) : (
+                  <span>{event.location}</span>
+                )}
+              </div>
+            )}
+            <div className="flex items-center gap-2">
+              <Users className="h-5 w-5 text-blue-600" />
+              <span>{event.participants.length} participants</span>
+            </div>
+          </div>
+
+          {/* Participants avatars */}
+          <div className="flex flex-wrap gap-2">
+            {event.participants.map((p) => (
+              <div
+                key={p.id}
+                className="flex items-center gap-1 bg-gray-200 px-2 py-1 rounded-full text-sm text-gray-900 font-medium"
+                title={p.name}
+              >
+                <span>{p.avatar || '👤'}</span>
+                <span>{p.name}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex flex-wrap gap-2 mb-6 no-print">
+          {[
+            { id: 'contributions', label: 'Contributions', icon: ChefHat, count: event.contributions.length },
+            { id: 'polls', label: 'Sondages', icon: BarChart3, count: event.polls.length },
+            { id: 'tasks', label: 'Tâches', icon: ClipboardList, count: event.tasks.length },
+            { id: 'chat', label: 'Discussion', icon: MessageCircle, count: event.chatMessages.length },
+          ].map((tab) => (
+            <Button
+              key={tab.id}
+              variant={activeTab === tab.id ? 'default' : 'outline'}
+              onClick={() => setActiveTab(tab.id as typeof activeTab)}
+              className="gap-2"
+            >
+              <tab.icon className="h-4 w-4" />
+              {tab.label}
+              <span className="bg-white/20 px-2 py-0.5 rounded-full text-sm">
+                {tab.count}
+              </span>
+            </Button>
+          ))}
+        </div>
+
+        {/* Tab Content */}
+        <div className="space-y-6">
+          {/* Contributions Tab */}
+          {activeTab === 'contributions' && (
+            <div className="space-y-6">
+              {/* Add contribution form */}
+              <Dialog open={isContribDialogOpen} onOpenChange={setIsContribDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button size="lg" className="w-full sm:w-auto no-print">
+                    <Plus className="mr-2 h-5 w-5" />
+                    Ajouter une contribution
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-[500px]">
+                  <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2">
+                      <Plus className="h-5 w-5" />
+                      Ajouter une contribution
+                    </DialogTitle>
+                    <DialogDescription>
+                      Qu'apportez-vous pour la fête ?
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="grid sm:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="contrib-title">Titre</Label>
+                      <Input
+                        id="contrib-title"
+                        placeholder="Ex: Bûche de Noël"
+                        value={newContribution.title}
+                        onChange={(e) => setNewContribution({ ...newContribution, title: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="contrib-category">Catégorie</Label>
+                      <select
+                        id="contrib-category"
+                        className="w-full h-12 px-3 rounded-lg border-2 text-lg"
+                        value={newContribution.category}
+                        onChange={(e) => setNewContribution({ ...newContribution, category: e.target.value })}
+                      >
+                        <option value="plat">🍽️ Plat</option>
+                        <option value="boisson">🍷 Boisson</option>
+                        <option value="décor">🎄 Décoration</option>
+                        <option value="autre">🎁 Autre</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="contrib-desc">Description (optionnel)</Label>
+                    <Input
+                      id="contrib-desc"
+                      placeholder="Détails sur votre contribution..."
+                      value={newContribution.description}
+                      onChange={(e) => setNewContribution({ ...newContribution, description: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="contrib-image">📸 Photo (optionnel)</Label>
+                    <input
+                      id="contrib-image"
+                      type="file"
+                      accept="image/*"
+                      onChange={handleContributionImageChange}
+                      className="w-full px-3 py-2 border-2 rounded-lg file:mr-2 file:px-3 file:py-1 file:rounded file:border-0 file:bg-christmas-red file:text-white file:cursor-pointer hover:file:bg-christmas-green"
+                    />
+                    {newContribution.contribImagePreview && (
+                      <div className="relative w-full h-40 rounded-lg overflow-hidden">
+                        <img
+                          src={newContribution.contribImagePreview}
+                          alt="Preview"
+                          className="w-full h-full object-cover"
+                        />
+                        <button
+                          onClick={() => setNewContribution({ ...newContribution, imageUrl: '', contribImagePreview: '' })}
+                          className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  <Button onClick={handleAddContribution} size="lg" className="w-full">
+                    <Gift className="mr-2 h-5 w-5" />
+                    Je m'engage à apporter
+                  </Button>
+                </DialogContent>
+              </Dialog>
+
+              {/* Contributions list */}
+              {/* Contributions table overview */}
+              <Card className="border-2 border-christmas-red overflow-hidden">
+                <CardHeader className="bg-gradient-to-r from-christmas-red to-christmas-green text-white">
+                  <CardTitle className="flex items-center justify-between">
+                    <span>📋 Récapitulatif des contributions</span>
+                    <div className="flex gap-2">
+                      <select
+                        value={sortCategory || ''}
+                        onChange={(e) => setSortCategory(e.target.value || null)}
+                        className="px-3 py-1 rounded-lg bg-white/20 text-white border border-white text-sm cursor-pointer hover:bg-white/30 transition-all [&>option]:text-gray-900 [&>option]:bg-white"
+                      >
+                        <option value="">Toutes les catégories</option>
+                        <option value="plat">🍽️ Plats</option>
+                        <option value="boisson">🍷 Boissons</option>
+                        <option value="décor">🎄 Décorations</option>
+                        <option value="autre">🎁 Autres</option>
+                      </select>
+                    </div>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <div className="overflow-x-auto">
+                    <table className="w-full border-collapse text-sm sm:text-base">
+                      <thead>
+                        <tr className="bg-gradient-to-r from-christmas-red/10 to-christmas-green/10">
+                          <th className="border-2 border-christmas-red/30 px-2 sm:px-4 py-3 text-left font-semibold text-gray-900">Catégorie</th>
+                          <th className="border-2 border-christmas-red/30 px-2 sm:px-4 py-3 text-left font-semibold text-gray-900">Contribution</th>
+                          <th className="hidden sm:table-cell border-2 border-christmas-red/30 px-2 sm:px-4 py-3 text-left font-semibold text-gray-900">Description</th>
+                          <th className="hidden md:table-cell border-2 border-christmas-red/30 px-2 sm:px-4 py-3 text-left font-semibold text-gray-900">Apporté par</th>
+                          <th className="border-2 border-christmas-red/30 px-2 sm:px-4 py-3 text-left font-semibold text-gray-900">Statut</th>
+                          <th className="border-2 border-christmas-red/30 px-2 sm:px-4 py-3 text-center font-semibold text-gray-900 no-print">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {event.contributions.length === 0 ? (
+                          <tr>
+                            <td colSpan={6} className="border-2 border-christmas-red/30 px-2 sm:px-4 py-8 text-center text-gray-700 bg-white/50">
+                              Aucune contribution pour l'instant. Soyez le premier ! 🎁
+                            </td>
+                          </tr>
+                        ) : (
+                          event.contributions
+                            .filter(c => !sortCategory || (c.category || 'autre') === sortCategory)
+                            .map((contrib, index) => 
+                              editingContribId === contrib.id ? (
+                                <tr key={contrib.id} className="bg-blue-50/50 border-2 border-christmas-red/30">
+                                  <td colSpan={6} className="px-2 sm:px-4 py-4">
+                                    <div className="space-y-3">
+                                      <div className="grid sm:grid-cols-2 gap-3">
+                                        <div className="space-y-1">
+                                          <Label className="text-xs">Titre</Label>
+                                          <Input
+                                            placeholder="Titre"
+                                            value={editingContrib.title}
+                                            onChange={(e) => setEditingContrib({ ...editingContrib, title: e.target.value })}
+                                            className="text-sm"
+                                          />
+                                        </div>
+                                        <div className="space-y-1">
+                                          <Label className="text-xs">Catégorie</Label>
+                                          <select
+                                            className="w-full h-10 px-3 rounded-lg border-2 text-sm"
+                                            value={editingContrib.category}
+                                            onChange={(e) => setEditingContrib({ ...editingContrib, category: e.target.value })}
+                                          >
+                                            <option value="plat">🍽️ Plat</option>
+                                            <option value="boisson">🍷 Boisson</option>
+                                            <option value="décor">🎄 Décoration</option>
+                                            <option value="autre">🎁 Autre</option>
+                                          </select>
+                                        </div>
+                                      </div>
+                                      <div className="space-y-1">
+                                        <Label className="text-xs">Description</Label>
+                                        <Input
+                                          placeholder="Description"
+                                          value={editingContrib.description}
+                                          onChange={(e) => setEditingContrib({ ...editingContrib, description: e.target.value })}
+                                          className="text-sm"
+                                        />
+                                      </div>
+                                      <div className="flex gap-2 justify-end">
+                                        <Button size="sm" variant="outline" onClick={() => setEditingContribId(null)}>Annuler</Button>
+                                        <Button size="sm" onClick={handleSaveContribution}>Enregistrer</Button>
+                                      </div>
+                                    </div>
+                                  </td>
+                                </tr>
+                              ) : (
+                                <tr 
+                                  key={contrib.id} 
+                                  className={cn(
+                                    'border-2 border-christmas-red/30 transition-colors cursor-pointer md:cursor-default',
+                                    index % 2 === 0 ? 'bg-white/50' : 'bg-green-50/30',
+                                    'hover:bg-yellow-50/50'
+                                  )}
+                                  onClick={() => setSelectedContribForDetail(contrib)}
+                                >
+                                  <td className="px-2 sm:px-4 py-3 font-medium text-xs sm:text-sm">
+                                    {getCategoryIcon(contrib.category || 'autre')} <span className="hidden sm:inline">{contrib.category === 'plat' ? 'Plat' : contrib.category === 'boisson' ? 'Boisson' : contrib.category === 'décor' ? 'Décor' : 'Autre'}</span>
+                                  </td>
+                                  <td className="px-2 sm:px-4 py-3 font-semibold flex items-center gap-3">
+                                    {contrib.imageUrl && (
+                                      <img src={contrib.imageUrl} alt="Photo" className="w-12 h-12 rounded-md object-cover hidden sm:block" />
+                                    )}
+                                    <span>{contrib.title}</span>
+                                  </td>
+                                  <td className="hidden sm:table-cell px-2 sm:px-4 py-3 text-gray-700 text-xs sm:text-sm">
+                                    {contrib.description || '-'}
+                                  </td>
+                                  <td className="hidden md:table-cell px-2 sm:px-4 py-3 text-xs sm:text-sm">
+                                    <span className="flex items-center gap-1">
+                                      <span>{contrib.assignee?.avatar || '👤'}</span>
+                                      <span className="hidden lg:inline">{contrib.assignee?.name || 'Non assigné'}</span>
+                                    </span>
+                                  </td>
+                                  <td className="px-2 sm:px-4 py-3">
+                                    <span className={cn('px-2 py-1 rounded-full text-xs font-medium', getStatusColor(contrib.status))}>
+                                      {getStatusLabel(contrib.status)}
+                                    </span>
+                                  </td>
+                                  <td className="px-2 sm:px-4 py-3 text-center no-print" onClick={(e) => e.stopPropagation()}>
+                                    <div className="flex gap-1 justify-center">
+                                      {contrib.assignee?.id === user?.id && (
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          onClick={() => handleEditContribution(contrib)}
+                                          title="Éditer"
+                                        >
+                                          ✏️
+                                        </Button>
+                                      )}
+                                      {contrib.assignee?.id === user?.id && contrib.status !== 'BROUGHT' && (
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          onClick={() => handleUpdateContributionStatus(
+                                            contrib.id,
+                                            contrib.status === 'PLANNED' ? 'CONFIRMED' : 'BROUGHT'
+                                          )}
+                                          title="Mettre à jour le statut"
+                                        >
+                                          <Check className="h-4 w-4" />
+                                        </Button>
+                                      )}
+                                    </div>
+                                  </td>
+                                </tr>
+                              )
+                            )
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Summary stats */}
+              {event.contributions.length > 0 && (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                  <Card className="text-center">
+                    <CardContent className="pt-6">
+                      <div className="text-3xl font-bold text-gray-700">{event.contributions.length}</div>
+                      <div className="text-sm text-gray-700 mt-1">Contributions totales</div>
+                    </CardContent>
+                  </Card>
+                  <Card className="text-center">
+                    <CardContent className="pt-6">
+                      <div className="text-3xl font-bold text-blue-600">{event.contributions.filter(c => c.status === 'CONFIRMED').length}</div>
+                      <div className="text-sm text-gray-700 mt-1">Confirmées</div>
+                    </CardContent>
+                  </Card>
+                  <Card className="text-center">
+                    <CardContent className="pt-6">
+                      <div className="text-3xl font-bold text-green-600">{event.contributions.filter(c => c.status === 'BROUGHT').length}</div>
+                      <div className="text-sm text-gray-700 mt-1">Apportées</div>
+                    </CardContent>
+                  </Card>
+                  <Card className="text-center">
+                    <CardContent className="pt-6">
+                      <div className="text-3xl font-bold text-yellow-600">{event.contributions.filter(c => c.status === 'PLANNED').length}</div>
+                      <div className="text-sm text-gray-700 mt-1">En attente</div>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Edit Task Dialog */}
+          <Dialog open={isEditTaskDialogOpen} onOpenChange={setIsEditTaskDialogOpen}>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>Éditer la tâche</DialogTitle>
+                <DialogDescription>Modifier le titre, la description et la date d'échéance</DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label>Titre *</Label>
+                  <Input value={editingTask.title} onChange={(e) => setEditingTask({ ...editingTask, title: e.target.value })} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Description</Label>
+                  <Input value={editingTask.description} onChange={(e) => setEditingTask({ ...editingTask, description: e.target.value })} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Échéance</Label>
+                  <input type="datetime-local" value={editingTask.dueDate} onChange={(e) => setEditingTask({ ...editingTask, dueDate: e.target.value })} className="w-full h-10 px-3 rounded-lg border-2" />
+                </div>
+                <div className="flex gap-2 justify-end">
+                  <Button variant="outline" onClick={() => { setIsEditTaskDialogOpen(false); setEditingTaskId(null) }}>Annuler</Button>
+                  <Button onClick={handleSaveTask}>Enregistrer</Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          {/* Polls Tab */}
+          {activeTab === 'polls' && (
+            <div className="space-y-6">
+              <div className="flex gap-2">
+                <Dialog open={isPollDialogOpen} onOpenChange={setIsPollDialogOpen}>
+                  <DialogTrigger asChild>
+                    <Button className="gap-2">
+                      <Plus className="h-4 w-4" />
+                      Nouveau sondage
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                      <DialogTitle>Créer un nouveau sondage</DialogTitle>
+                      <DialogDescription>Posez une question et ajoutez des options de réponse</DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="poll-title">Question *</Label>
+                        <Input
+                          id="poll-title"
+                          placeholder="Ex: Quel jour vous convient le mieux ?"
+                          value={newPoll.title}
+                          onChange={(e) => setNewPoll({ ...newPoll, title: e.target.value })}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="poll-description">Description</Label>
+                        <Input
+                          id="poll-description"
+                          placeholder="Détails supplémentaires (optionnel)"
+                          value={newPoll.description}
+                          onChange={(e) => setNewPoll({ ...newPoll, description: e.target.value })}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="poll-image">📸 Image bannière (optionnel)</Label>
+                        <input
+                          id="poll-image"
+                          type="file"
+                          accept="image/*"
+                          onChange={handlePollImageChange}
+                          className="w-full px-3 py-2 border-2 rounded-lg file:mr-2 file:px-3 file:py-1 file:rounded file:border-0 file:bg-christmas-red file:text-white file:cursor-pointer hover:file:bg-christmas-green"
+                        />
+                        {newPoll.pollImagePreview && (
+                          <div className="relative w-full h-40 rounded-lg overflow-hidden">
+                            <img
+                              src={newPoll.pollImagePreview}
+                              alt="Preview"
+                              className="w-full h-full object-cover"
+                            />
+                            <button
+                              onClick={() => setNewPoll({ ...newPoll, imageUrl: '', pollImagePreview: '' })}
+                              className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="poll-type">Type de sondage</Label>
+                        <select
+                          id="poll-type"
+                          className="w-full h-10 px-3 rounded-lg border-2 border-gray-200"
+                          value={newPoll.type}
+                          onChange={(e) => setNewPoll({ ...newPoll, type: e.target.value })}
+                        >
+                          <option value="SINGLE">Choix unique</option>
+                          <option value="MULTIPLE">Choix multiples</option>
+                        </select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Options de réponse *</Label>
+                        <div className="space-y-2">
+                          {newPoll.options.map((option, idx) => (
+                            <div key={idx} className="flex gap-2">
+                              <Input
+                                placeholder={`Option ${idx + 1}`}
+                                value={option}
+                                onChange={(e) => {
+                                  const newOptions = [...newPoll.options]
+                                  newOptions[idx] = e.target.value
+                                  setNewPoll({ ...newPoll, options: newOptions })
+                                }}
+                              />
+                              {newPoll.options.length > 2 && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => {
+                                    const newOptions = newPoll.options.filter((_, i) => i !== idx)
+                                    setNewPoll({ ...newPoll, options: newOptions })
+                                  }}
+                                >
+                                  <X className="h-4 w-4" />
+                                </Button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setNewPoll({ ...newPoll, options: [...newPoll.options, ''] })}
+                          className="w-full"
+                        >
+                          <Plus className="h-4 w-4 mr-1" />
+                          Ajouter une option
+                        </Button>
+                      </div>
+                      <div className="flex gap-2 justify-end">
+                        <Button variant="outline" onClick={() => setIsPollDialogOpen(false)}>Annuler</Button>
+                        <Button type="button" onClick={() => { toast({ title: 'Envoi', description: 'Création en cours...' }); handleCreatePoll(); }}>Créer le sondage</Button>
+                      </div>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+              </div>
+              
+              {event.polls.length === 0 ? (
+                <Card className="text-center py-12">
+                  <BarChart3 className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                  <p className="text-lg text-muted-foreground">Aucun sondage pour l’instant</p>
+                </Card>
+              ) : (
+                event.polls.map((poll) => {
+                  const totalVotes = poll.options.reduce((sum, opt) => sum + opt.voteCount, 0)
+
+                  return (
+                    <Card key={poll.id}>
+                      <CardHeader>
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <CardTitle className="text-xl">{poll.title}</CardTitle>
+                            {poll.description && (
+                              <CardDescription>{poll.description}</CardDescription>
+                            )}
+                          </div>
+                          {poll.isClosed && (
+                            <span className="px-2 py-1 bg-gray-100 text-gray-800 rounded text-sm">
+                              Fermé
+                            </span>
+                          )}
+                        </div>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        {poll.options.map((option) => {
+                          const percentage = totalVotes > 0 ? Math.round((option.voteCount / totalVotes) * 100) : 0
+                          const isSelected = selectedVotes[poll.id]?.includes(option.id)
+                          const wasVoted = poll.userVotes.includes(option.id)
+
+                          return (
+                            <div key={option.id} className="space-y-2">
+                              <div className="flex items-center justify-between">
+                                <label className="flex items-center gap-3 cursor-pointer">
+                                  {!poll.isClosed && (
+                                    <input
+                                      type={poll.type === 'SINGLE' ? 'radio' : 'checkbox'}
+                                      name={`poll-${poll.id}`}
+                                      checked={isSelected}
+                                      onChange={(e) => {
+                                        if (poll.type === 'SINGLE') {
+                                          setSelectedVotes({ ...selectedVotes, [poll.id]: [option.id] })
+                                        } else {
+                                          const current = selectedVotes[poll.id] || []
+                                          if (e.target.checked) {
+                                            setSelectedVotes({ ...selectedVotes, [poll.id]: [...current, option.id] })
+                                          } else {
+                                            setSelectedVotes({ ...selectedVotes, [poll.id]: current.filter((id) => id !== option.id) })
+                                          }
+                                        }
+                                      }}
+                                      className="h-5 w-5"
+                                    />
+                                  )}
+                                  <span className={cn('text-lg', wasVoted && 'font-semibold')}>
+                                    {option.label}
+                                    {wasVoted && ' ✓'}
+                                  </span>
+                                </label>
+                                <span className="text-muted-foreground">
+                                  {option.voteCount} vote{option.voteCount !== 1 ? 's' : ''} ({percentage}%)
+                                </span>
+                              </div>
+                              <div className="h-3 bg-muted rounded-full overflow-hidden">
+                                <div
+                                  className="h-full bg-christmas-green transition-all"
+                                  style={{ width: `${percentage}%` }}
+                                />
+                              </div>
+                            </div>
+                          )
+                        })}
+
+                        {!poll.isClosed && (
+                          <Button
+                            onClick={() => handleVote(poll.id)}
+                            className="mt-4"
+                            disabled={!selectedVotes[poll.id]?.length}
+                          >
+                            {poll.hasVoted ? 'Modifier mon vote' : 'Voter'}
+                          </Button>
+                        )}
+
+                        <p className="text-sm text-muted-foreground">
+                          {totalVotes} vote{totalVotes !== 1 ? 's' : ''} au total
+                        </p>
+                      </CardContent>
+                    </Card>
+                  )
+                })
+              )}
+            </div>
+          )}
+
+          {/* Tasks Tab */}
+          {activeTab === 'tasks' && (
+            <div className="space-y-6">
+              <div className="flex gap-2">
+                <Dialog open={isTaskDialogOpen} onOpenChange={setIsTaskDialogOpen}>
+                  <DialogTrigger asChild>
+                    <Button className="gap-2">
+                      <Plus className="h-4 w-4" />
+                      Nouvelle tâche
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                      <DialogTitle>Créer une nouvelle tâche</DialogTitle>
+                      <DialogDescription>Ajouter une tâche pour organiser votre événement</DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="task-title">Titre *</Label>
+                        <Input
+                          id="task-title"
+                          placeholder="Ex: Acheter les décorations"
+                          value={newTask.title}
+                          onChange={(e) => setNewTask({ ...newTask, title: e.target.value })}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="task-description">Description</Label>
+                        <Input
+                          id="task-description"
+                          placeholder="Détails supplémentaires..."
+                          value={newTask.description}
+                          onChange={(e) => setNewTask({ ...newTask, description: e.target.value })}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="task-due">Échéance (optionnel)</Label>
+                        <input
+                          id="task-due"
+                          type="datetime-local"
+                          value={newTask.dueDate}
+                          onChange={(e) => setNewTask({ ...newTask, dueDate: e.target.value })}
+                          className="w-full h-10 px-3 rounded-lg border-2"
+                        />
+                      </div>
+                      <div className="flex items-center gap-2 p-3 bg-gray-50 rounded-lg">
+                        <input
+                          type="checkbox"
+                          id="is-private"
+                          checked={!newTask.isPrivate}
+                          onChange={(e) => setNewTask({ ...newTask, isPrivate: !e.target.checked })}
+                          className="w-4 h-4 cursor-pointer"
+                        />
+                        <Label htmlFor="is-private" className="cursor-pointer flex-1 mb-0">
+                          <span className="font-medium">Tâche publique</span>
+                          <p className="text-xs text-gray-600 mt-1">
+                            {newTask.isPrivate 
+                              ? 'Seul vous pouvez voir cette tâche' 
+                              : 'Tous les participants de l\'événement peuvent voir cette tâche'}
+                          </p>
+                        </Label>
+                      </div>
+                      <div className="flex gap-2 justify-end">
+                        <Button variant="outline" onClick={() => setIsTaskDialogOpen(false)}>Annuler</Button>
+                        <Button onClick={handleCreateTask}>Créer la tâche</Button>
+                      </div>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+              </div>
+
+              {['TODO', 'IN_PROGRESS', 'DONE'].map((status) => {
+                const statusTasks = event.tasks.filter((t) => {
+                  // Afficher les tâches publiques pour tout le monde
+                  if (!t.isPrivate) return t.status === status
+                  // Afficher les tâches privées seulement au créateur
+                  return t.status === status && t.createdBy.id === user?.id
+                })
+                
+                return (
+                  <Card key={status}>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-lg flex items-center gap-2">
+                        <span className={cn('w-3 h-3 rounded-full', 
+                          status === 'TODO' ? 'bg-gray-400' : 
+                          status === 'IN_PROGRESS' ? 'bg-blue-500' : 'bg-green-500'
+                        )} />
+                        {getStatusLabel(status)} ({statusTasks.length})
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      {statusTasks.length === 0 ? (
+                        <p className="text-muted-foreground text-center py-4">
+                          Aucune tâche
+                        </p>
+                      ) : (
+                        <div className="divide-y">
+                          {statusTasks.map((task) => (
+                            <div key={task.id} className="py-3 flex items-center justify-between gap-4">
+                              <div className="flex-1">
+                                <div className="font-medium flex items-center gap-2">
+                                  {task.title}
+                                  {task.isPrivate && (
+                                    <span className="text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded flex items-center gap-1">
+                                      🔒 Privée
+                                    </span>
+                                  )}
+                                </div>
+                                {task.description && (
+                                  <div className="text-sm text-muted-foreground">{task.description}</div>
+                                )}
+                                <div className="text-sm mt-1 flex items-center gap-2">
+                                  {task.assignee && (
+                                    <span className="flex items-center gap-1">
+                                      <span>{task.assignee.avatar || '👤'}</span>
+                                      {task.assignee.name}
+                                    </span>
+                                  )}
+                                  {task.dueDate && (
+                                    <span className="text-muted-foreground">
+                                      • Échéance: {formatDate(task.dueDate, { weekday: undefined, year: undefined })}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="flex gap-2 items-center">
+                              {(task.assignee?.id === user?.id || task.createdBy?.id === user?.id || user?.role === 'ADMIN') && task.status !== 'DONE' && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleUpdateTaskStatus(
+                                    task.id,
+                                    task.status === 'TODO' ? 'IN_PROGRESS' : 'DONE'
+                                  )}
+                                  className="no-print"
+                                >
+                                  {task.status === 'TODO' ? 'Commencer' : 'Terminer'}
+                                </Button>
+                              )}
+
+                              {(task.assignee?.id === user?.id || task.createdBy?.id === user?.id || user?.role === 'ADMIN') && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => {
+                                    setEditingTaskId(task.id)
+                                    const toLocalDatetimeInput = (d: string) => {
+                                      const date = new Date(d)
+                                      const pad = (n: number) => String(n).padStart(2, '0')
+                                      const yyyy = date.getFullYear()
+                                      const mm = pad(date.getMonth() + 1)
+                                      const dd = pad(date.getDate())
+                                      const hh = pad(date.getHours())
+                                      const min = pad(date.getMinutes())
+                                      return `${yyyy}-${mm}-${dd}T${hh}:${min}`
+                                    }
+                                    setEditingTask({ title: task.title, description: task.description || '', dueDate: task.dueDate ? toLocalDatetimeInput(task.dueDate) : '' })
+                                    setIsEditTaskDialogOpen(true)
+                                  }}
+                                  className="no-print"
+                                >
+                                  ✏️ Éditer
+                                </Button>
+                              )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                )
+              })}
+            </div>
+          )}
+
+          {/* Chat Tab */}
+          {activeTab === 'chat' && (
+            <Card className="no-print">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <MessageCircle className="h-5 w-5" />
+                  Discussion
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {/* Messages */}
+                <div className="h-[400px] overflow-y-auto mb-4 space-y-4 p-4 bg-muted/50 rounded-lg">
+                  {event.chatMessages.length === 0 ? (
+                    <p className="text-center text-gray-700 py-8">
+                      Aucun message. Soyez le premier à écrire ! 💬
+                    </p>
+                  ) : (
+                    event.chatMessages.map((msg) => (
+                      <div
+                        key={msg.id}
+                        className={cn(
+                          'flex gap-3',
+                          msg.user.id === user?.id ? 'flex-row-reverse' : ''
+                        )}
+                      >
+                        <div className="flex-shrink-0 text-2xl">
+                          {msg.user.avatar || '👤'}
+                        </div>
+                        <div className={cn(
+                          'max-w-[70%] rounded-lg p-3',
+                          msg.user.id === user?.id
+                            ? 'bg-christmas-green text-white'
+                            : 'bg-white border'
+                        )}>
+                          <div className="font-medium text-sm mb-1">
+                            {msg.user.name}
+                          </div>
+                          <div>{msg.content}</div>
+                          {msg.media && msg.media.length > 0 && (
+                            <div className="flex flex-wrap gap-2 mt-2">
+                              {msg.media.map((m) => (
+                                <img key={m.id} src={m.imageUrl} alt="Chat attachment" className="max-w-xs h-auto rounded-lg" />
+                              ))}
+                            </div>
+                          )}
+                          <div className={cn(
+                            'text-xs mt-1',
+                            msg.user.id === user?.id ? 'text-white/70' : 'text-gray-700'
+                          )}>
+                            {new Date(msg.createdAt).toLocaleTimeString('fr-FR', {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                {/* Image previews */}
+                {chatImagePreviews.length > 0 && (
+                  <div className="flex flex-wrap gap-2 px-4 py-2">
+                    {chatImagePreviews.map((preview, idx) => (
+                      <div key={idx} className="relative w-20 h-20 rounded-lg overflow-hidden">
+                        <img src={preview} alt="Preview" className="w-full h-full object-cover" />
+                        <button
+                          onClick={() => {
+                            setChatImageUrls(chatImageUrls.filter((_, i) => i !== idx))
+                            setChatImagePreviews(chatImagePreviews.filter((_, i) => i !== idx))
+                          }}
+                          className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-0.5 hover:bg-red-600 text-xs"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  <input
+                    type="file"
+                    multiple
+                    accept="image/*"
+                    onChange={handleChatImageChange}
+                    className="hidden"
+                    id="chat-image-upload"
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => document.getElementById('chat-image-upload')?.click()}
+                    className="gap-2"
+                  >
+                    📸
+                  </Button>
+                  <Input
+                    placeholder="Votre message..."
+                    value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault()
+                        handleSendMessage()
+                      }
+                    }}
+                  />
+                  <Button onClick={handleSendMessage} disabled={!newMessage.trim() && chatImageUrls.length === 0}>
+                    <Send className="h-5 w-5" />
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+
+        {/* Modal de détails contribution mobile */}
+        <Dialog open={!!selectedContribForDetail} onOpenChange={(open) => !open && setSelectedContribForDetail(null)}>
+          <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
+            {selectedContribForDetail && (
+              <div className="space-y-4">
+                <div>
+                  <div className="flex items-start gap-4">
+                    {selectedContribForDetail.imageUrl && (
+                      <img src={selectedContribForDetail.imageUrl} alt="Photo" className="w-32 h-32 object-cover rounded-md" />
+                    )}
+                    <div>
+                      <h2 className="text-2xl font-bold text-gray-900">
+                        {selectedContribForDetail.title}
+                      </h2>
+                      <div className="flex items-center gap-2 mt-2 text-sm text-gray-600">
+                        <span>{getCategoryIcon(selectedContribForDetail.category || 'autre')}</span>
+                        <span className="font-medium">
+                          {selectedContribForDetail.category === 'plat' ? 'Plat' : 
+                           selectedContribForDetail.category === 'boisson' ? 'Boisson' : 
+                           selectedContribForDetail.category === 'décor' ? 'Décoration' : 'Autre'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-700 mb-1">Description</h3>
+                  <p className="text-gray-700">
+                    {selectedContribForDetail.description || 'Aucune description'}
+                  </p>
+                </div>
+
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-700 mb-1">Apporté par</h3>
+                  <div className="flex items-center gap-2">
+                    <span className="text-2xl">{selectedContribForDetail.assignee?.avatar || '👤'}</span>
+                    <span className="text-gray-700">{selectedContribForDetail.assignee?.name || 'Non assigné'}</span>
+                  </div>
+                </div>
+
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-700 mb-1">Statut</h3>
+                  <span className={cn('inline-block px-3 py-1 rounded-full text-sm font-medium', getStatusColor(selectedContribForDetail.status))}>
+                    {getStatusLabel(selectedContribForDetail.status)}
+                  </span>
+                </div>
+
+                {selectedContribForDetail.assignee?.id === user?.id && (
+                  <div className="flex gap-2 pt-4">
+                    <Button 
+                      variant="outline" 
+                      className="flex-1"
+                      onClick={() => {
+                        handleEditContribution(selectedContribForDetail)
+                        setSelectedContribForDetail(null)
+                      }}
+                    >
+                      ✏️ Éditer
+                    </Button>
+                    {selectedContribForDetail.status !== 'BROUGHT' && (
+                      <Button 
+                        className="flex-1"
+                        onClick={() => {
+                          handleUpdateContributionStatus(
+                            selectedContribForDetail.id,
+                            selectedContribForDetail.status === 'PLANNED' ? 'CONFIRMED' : 'BROUGHT'
+                          )
+                          setSelectedContribForDetail(null)
+                        }}
+                      >
+                        <Check className="h-4 w-4 mr-1" />
+                        {selectedContribForDetail.status === 'PLANNED' ? 'Confirmer' : 'Apporté'}
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
+      </main>
+    </div>
+  )
+}

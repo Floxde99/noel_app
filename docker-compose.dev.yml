@@ -1,0 +1,27 @@
+# Development Docker Compose
+# Only starts MariaDB (MySQL-compatible) for local development
+
+version: '3.8'
+
+services:
+  db:
+    image: mariadb:11
+    container_name: noel_mariadb_dev
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: noel_password
+      MYSQL_DATABASE: noel_db
+      MYSQL_USER: noel
+      MYSQL_PASSWORD: noel_password
+    volumes:
+      - mariadb_dev_data:/var/lib/mysql
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-P", "3306", "-uroot", "-pnoel_password"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  mariadb_dev_data:

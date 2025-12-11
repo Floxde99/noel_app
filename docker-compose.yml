@@ -1,0 +1,54 @@
+version: '3.8'
+
+services:
+  # MariaDB / MySQL Database
+  db:
+    image: mariadb:11
+    container_name: noel_mariadb
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: noel_password
+      MYSQL_DATABASE: noel_db
+      MYSQL_USER: noel
+      MYSQL_PASSWORD: noel_password
+    volumes:
+      - mariadb_data:/var/lib/mysql
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-P", "3306", "-uroot", "-pnoel_password"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - noel_network
+
+  # Next.js Application
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: noel_app
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=mysql://noel:noel_password@db:3306/noel_db
+      - JWT_ACCESS_SECRET=${JWT_ACCESS_SECRET:-dev-access-secret-key-for-local-development-only-32chars}
+      - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET:-dev-refresh-secret-key-for-local-development-only-32chars}
+      - JWT_ACCESS_EXPIRY=15m
+      - JWT_REFRESH_EXPIRY=7d
+      - NEXT_PUBLIC_APP_URL=http://localhost:3000
+      - NODE_ENV=production
+    ports:
+      - "3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - noel_network
+
+volumes:
+  mariadb_data:
+
+networks:
+  noel_network:
+    driver: bridge

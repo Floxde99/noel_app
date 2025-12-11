@@ -1,0 +1,323 @@
+// Prisma Schema for Noel Family App
+// MariaDB / MySQL database with full relations
+
+generator client {
+  provider   = "prisma-client-js"
+  engineType = "library"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+// User roles enum
+enum Role {
+  USER
+  ADMIN
+}
+
+// Event status enum
+enum EventStatus {
+  DRAFT
+  OPEN
+  CLOSED
+}
+
+// Contribution status enum
+enum ContributionStatus {
+  PLANNED    // Prévu
+  CONFIRMED  // Confirmé
+  BROUGHT    // Apporté
+}
+
+// Task status enum
+enum TaskStatus {
+  TODO        // À faire
+  IN_PROGRESS // En cours
+  DONE        // Terminé
+}
+
+// Poll type enum
+enum PollType {
+  SINGLE   // Single choice
+  MULTIPLE // Multiple choice
+}
+
+// ============================================
+// USER MODEL
+// ============================================
+model User {
+  id        String   @id @default(cuid())
+  name      String
+  email     String?  @unique
+  avatar    String?
+  role      Role     @default(USER)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  refreshTokens  RefreshToken[]
+  eventUsers     EventUser[]
+  contributions  Contribution[]
+  pollVotes      PollVote[]
+  createdPolls   Poll[]          @relation("CreatedPolls")
+  assignedTasks  Task[]          @relation("AssignedTasks")
+  createdTasks   Task[]          @relation("CreatedTasks")
+  chatMessages   ChatMessage[]
+
+  @@index([name])
+  @@index([email])
+}
+
+// ============================================
+// REFRESH TOKEN MODEL
+// ============================================
+model RefreshToken {
+  id        String   @id @default(cuid())
+  token     String   @unique @db.VarChar(512)
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  revokedAt DateTime?
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([userId])
+}
+
+// ============================================
+// EVENT MODEL
+// ============================================
+model Event {
+  id          String      @id @default(cuid())
+  name        String
+  description String?
+  date        DateTime
+  endDate     DateTime?
+  location    String?
+  mapUrl      String?     // Google Maps link
+  status      EventStatus @default(OPEN)
+  bannerImage String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  // Relations
+  eventCodes    EventCodeEvent[]
+  eventUsers    EventUser[]
+  contributions Contribution[]
+  polls         Poll[]
+  tasks         Task[]
+  chatMessages  ChatMessage[]
+
+  @@index([status])
+  @@index([date])
+}
+
+// ============================================
+// EVENT CODE MODEL (for login)
+// ============================================
+model EventCode {
+  id        String    @id @default(cuid())
+  code      String    @unique
+  isActive  Boolean   @default(true)
+  isMaster  Boolean   @default(false) // Master code for multiple events
+  expiresAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  // Relations
+  events EventCodeEvent[]
+
+  @@index([code])
+}
+
+// ============================================
+// EVENT CODE <-> EVENT (Many-to-Many)
+// ============================================
+model EventCodeEvent {
+  id        String   @id @default(cuid())
+  eventId   String
+  eventCodeId String
+  createdAt DateTime @default(now())
+
+  // Relations
+  event    Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  eventCode EventCode @relation(fields: [eventCodeId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, eventCodeId])
+  @@index([eventId])
+  @@index([eventCodeId])
+}
+
+// ============================================
+// EVENT USER (Many-to-Many with extra data)
+// ============================================
+model EventUser {
+  id        String   @id @default(cuid())
+  userId    String
+  eventId   String
+  joinedAt  DateTime @default(now())
+
+  // Relations
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, eventId])
+  @@index([userId])
+  @@index([eventId])
+}
+
+// ============================================
+// CONTRIBUTION MODEL
+// ============================================
+model Contribution {
+  id          String             @id @default(cuid())
+  title       String
+  description String?
+  category    String?            // plat, boisson, décor, autre
+  quantity    Int                @default(1)
+  status      ContributionStatus @default(PLANNED)
+  imageUrl    String?            // WebP image of the contribution
+  eventId     String
+  assigneeId  String?
+  fromPollId  String?            // If created from poll
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  // Relations
+  event    Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  assignee User? @relation(fields: [assigneeId], references: [id], onDelete: SetNull)
+
+  @@index([eventId])
+  @@index([assigneeId])
+  @@index([status])
+}
+
+// ============================================
+// POLL MODEL
+// ============================================
+model Poll {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  type        PollType @default(SINGLE)
+  imageUrl    String?  // WebP banner image for the poll
+  eventId     String
+  createdById String?
+  isClosed    Boolean  @default(false)
+  closedAt    DateTime?
+  autoClose   DateTime? // Auto-close date
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  event     Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  createdBy User?        @relation("CreatedPolls", fields: [createdById], references: [id], onDelete: SetNull)
+  options   PollOption[]
+  votes     PollVote[]
+
+  @@index([eventId])
+  @@index([createdById])
+  @@index([isClosed])
+}
+
+// ============================================
+// POLL OPTION MODEL
+// ============================================
+model PollOption {
+  id        String   @id @default(cuid())
+  label     String
+  pollId    String
+  createdAt DateTime @default(now())
+
+  // Relations
+  poll  Poll       @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  votes PollVote[]
+
+  @@index([pollId])
+}
+
+// ============================================
+// POLL VOTE MODEL
+// ============================================
+model PollVote {
+  id        String   @id @default(cuid())
+  pollId    String
+  optionId  String
+  userId    String
+  createdAt DateTime @default(now())
+
+  // Relations
+  poll   Poll       @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  option PollOption @relation(fields: [optionId], references: [id], onDelete: Cascade)
+  user   User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([pollId, userId, optionId])
+  @@index([pollId])
+  @@index([optionId])
+  @@index([userId])
+}
+
+// ============================================
+// TASK MODEL
+// ============================================
+model Task {
+  id          String     @id @default(cuid())
+  title       String
+  description String?
+  status      TaskStatus @default(TODO)
+  isPrivate   Boolean    @default(false)
+  eventId     String
+  assigneeId  String?
+  createdById String
+  dueDate     DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  // Relations
+  event     Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  assignee  User? @relation("AssignedTasks", fields: [assigneeId], references: [id], onDelete: SetNull)
+  createdBy User  @relation("CreatedTasks", fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@index([eventId])
+  @@index([assigneeId])
+  @@index([status])
+}
+
+// ============================================
+// CHAT MESSAGE MODEL
+// ============================================
+model ChatMessage {
+  id        String   @id @default(cuid())
+  content   String
+  eventId   String
+  userId    String
+  createdAt DateTime @default(now())
+
+  // Relations
+  event  Event                @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user   User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  media  ChatMessageMedia[]
+
+  @@index([eventId])
+  @@index([userId])
+  @@index([createdAt])
+}
+
+// ============================================
+// CHAT MESSAGE MEDIA MODEL
+// ============================================
+model ChatMessageMedia {
+  id              String      @id @default(cuid())
+  messageId       String
+  imageUrl        String      // WebP image URL
+  originalName    String?     // Original file name
+  createdAt       DateTime    @default(now())
+
+  // Relations
+  message         ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+}
