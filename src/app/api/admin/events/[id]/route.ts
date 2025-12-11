@@ -22,7 +22,7 @@ async function requireAdmin(request: NextRequest) {
 // GET /api/admin/events/[id] - Get event details
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const payload = await requireAdmin(request)
@@ -30,8 +30,10 @@ export async function GET(
       return NextResponse.json({ error: 'Accès non autorisé' }, { status: 403 })
     }
 
+    const { id } = await params
+
     const event = await prisma.event.findUnique({
-      where: { id: params.id },
+      where: { id },
       include: {
         eventUsers: {
           include: { user: true },
@@ -60,7 +62,7 @@ export async function GET(
 // PATCH /api/admin/events/[id] - Update event (including status)
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const payload = await requireAdmin(request)
@@ -79,8 +81,10 @@ export async function PATCH(
       )
     }
 
+    const { id } = await params
+
     const event = await prisma.event.update({
-      where: { id: params.id },
+      where: { id },
       data: {
         ...(name && { name }),
         ...(description !== undefined && { description }),
@@ -117,7 +121,7 @@ export async function PATCH(
 // DELETE /api/admin/events/[id] - Delete event
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const payload = await requireAdmin(request)
@@ -125,8 +129,10 @@ export async function DELETE(
       return NextResponse.json({ error: 'Accès non autorisé' }, { status: 403 })
     }
 
+    const { id } = await params
+
     await prisma.event.delete({
-      where: { id: params.id },
+      where: { id },
     })
 
     return NextResponse.json({ message: 'Événement supprimé avec succès' })

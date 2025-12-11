@@ -49,6 +49,7 @@ interface Contribution {
   quantity: number
   status: 'PLANNED' | 'CONFIRMED' | 'BROUGHT'
   assignee?: User
+  imageUrl?: string
 }
 
 interface PollOption {
@@ -75,6 +76,8 @@ interface Task {
   status: 'TODO' | 'IN_PROGRESS' | 'DONE'
   assignee?: User
   dueDate?: string
+  isPrivate?: boolean
+  createdBy?: User
 }
 
 interface ChatMessage {
@@ -82,6 +85,12 @@ interface ChatMessage {
   content: string
   createdAt: string
   user: User
+  media?: ChatMessageMedia[]
+}
+
+interface ChatMessageMedia {
+  id: string
+  imageUrl: string
 }
 
 interface Event {
@@ -1501,7 +1510,7 @@ export default function EventPage() {
                   // Afficher les tâches publiques pour tout le monde
                   if (!t.isPrivate) return t.status === status
                   // Afficher les tâches privées seulement au créateur
-                  return t.status === status && t.createdBy.id === user?.id
+                  return t.status === status && t.createdBy?.id === user?.id
                 })
                 
                 return (

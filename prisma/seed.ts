@@ -115,27 +115,38 @@ async function main() {
   console.log(`🎄 Created events: "${reveillon.name}" & "${dejeuner.name}"\n`)
 
   // Create Event Codes
-  await prisma.eventCode.createMany({
-    data: [
-      {
-        code: 'NOEL-2025-SOIR',
-        eventId: reveillon.id,
-        isActive: true,
-        isMaster: false,
+  await prisma.eventCode.create({
+    data: {
+      code: 'NOEL-2025-SOIR',
+      isActive: true,
+      isMaster: false,
+      events: {
+        create: [{ eventId: reveillon.id }],
       },
-      {
-        code: 'NOEL-2025-MIDI',
-        eventId: dejeuner.id,
-        isActive: true,
-        isMaster: false,
+    },
+  })
+  await prisma.eventCode.create({
+    data: {
+      code: 'NOEL-2025-MIDI',
+      isActive: true,
+      isMaster: false,
+      events: {
+        create: [{ eventId: dejeuner.id }],
       },
-      {
-        code: 'NOEL-FAMILLE-2025',
-        eventId: reveillon.id, // Master code gives access to all
-        isActive: true,
-        isMaster: true,
+    },
+  })
+  await prisma.eventCode.create({
+    data: {
+      code: 'NOEL-FAMILLE-2025',
+      isActive: true,
+      isMaster: true,
+      events: {
+        create: [
+          { eventId: reveillon.id },
+          { eventId: dejeuner.id },
+        ],
       },
-    ],
+    },
   })
   console.log('🔑 Created event codes: NOEL-2025-SOIR, NOEL-2025-MIDI, NOEL-FAMILLE-2025\n')
 

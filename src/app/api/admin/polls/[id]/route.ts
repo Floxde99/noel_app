@@ -22,7 +22,7 @@ async function requireAdmin(request: NextRequest) {
 // GET /api/admin/polls/[id] - Get poll details
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const payload = await requireAdmin(request)
@@ -30,8 +30,10 @@ export async function GET(
       return NextResponse.json({ error: 'Accès non autorisé' }, { status: 403 })
     }
 
+    const { id } = await params
+
     const poll = await prisma.poll.findUnique({
-      where: { id: params.id },
+      where: { id },
       include: {
         event: {
           select: {
@@ -90,7 +92,7 @@ export async function GET(
 // PATCH /api/admin/polls/[id] - Update poll (close, title, etc.)
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const payload = await requireAdmin(request)
@@ -109,8 +111,10 @@ export async function PATCH(
       )
     }
 
+    const { id } = await params
+
     const poll = await prisma.poll.update({
-      where: { id: params.id },
+      where: { id },
       data: {
         ...(title && { title }),
         ...(description !== undefined && { description }),
@@ -156,7 +160,7 @@ export async function PATCH(
 // DELETE /api/admin/polls/[id] - Delete poll
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const payload = await requireAdmin(request)
@@ -164,8 +168,10 @@ export async function DELETE(
       return NextResponse.json({ error: 'Accès non autorisé' }, { status: 403 })
     }
 
+    const { id } = await params
+
     await prisma.poll.delete({
-      where: { id: params.id },
+      where: { id },
     })
 
     return NextResponse.json({ message: 'Sondage supprimé avec succès' })

@@ -4,8 +4,10 @@ import prisma from './prisma'
 
 const ACCESS_SECRET = process.env.JWT_ACCESS_SECRET
 const REFRESH_SECRET = process.env.JWT_REFRESH_SECRET
-const ACCESS_EXPIRY = process.env.JWT_ACCESS_EXPIRY || '15m'
-const REFRESH_EXPIRY = process.env.JWT_REFRESH_EXPIRY || '7d'
+const ACCESS_EXPIRY: SignOptions['expiresIn'] =
+  (process.env.JWT_ACCESS_EXPIRY as SignOptions['expiresIn']) || ('15m' as SignOptions['expiresIn'])
+const REFRESH_EXPIRY: SignOptions['expiresIn'] =
+  (process.env.JWT_REFRESH_EXPIRY as SignOptions['expiresIn']) || ('7d' as SignOptions['expiresIn'])
 
 if (!ACCESS_SECRET || !REFRESH_SECRET) {
   throw new Error('JWT secrets must be defined')
