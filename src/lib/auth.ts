@@ -1,53 +1,52 @@
-import jwt, { Secret, type SignOptions } from 'jsonwebtoken'
-import { randomUUID } from 'crypto'
-import prisma from './prisma'
+import jwt, { SignOptions } from 'jsonwebtoken';
+import { prisma } from './prisma';
+import { cookies } from 'next/headers';
 
-const ACCESS_SECRET = process.env.JWT_ACCESS_SECRET
-const REFRESH_SECRET = process.env.JWT_REFRESH_SECRET
-const ACCESS_EXPIRY: SignOptions['expiresIn'] =
-  (process.env.JWT_ACCESS_EXPIRY as SignOptions['expiresIn']) || ('15m' as SignOptions['expiresIn'])
-const REFRESH_EXPIRY: SignOptions['expiresIn'] =
-  (process.env.JWT_REFRESH_EXPIRY as SignOptions['expiresIn']) || ('7d' as SignOptions['expiresIn'])
+// Fonction pour obtenir les secrets de manière paresseuse (lazy)
+function getJwtSecrets() {
+  const JWT_SECRET = process.env.JWT_SECRET;
+  const NEXTAUTH_SECRET = process.env.NEXTAUTH_SECRET;
 
-if (!ACCESS_SECRET || !REFRESH_SECRET) {
-  throw new Error('JWT secrets must be defined')
+  if (!JWT_SECRET || !NEXTAUTH_SECRET) {
+    throw new Error('JWT secrets must be defined');
+  }
+
+  return { JWT_SECRET, NEXTAUTH_SECRET };
 }
 
-const accessSecret: Secret = ACCESS_SECRET
-const refreshSecret: Secret = REFRESH_SECRET
-
-interface TokenPayload {
-  userId: string
-  name: string
-  role: 'USER' | 'ADMIN'
+export interface TokenPayload {
+  userId: string;
+  name: string;
+  role: 'USER' | 'ADMIN';
 }
 
 export function generateAccessToken(payload: TokenPayload): string {
-  const options: SignOptions = { expiresIn: ACCESS_EXPIRY }
-  return jwt.sign(payload, accessSecret, options)
+  const { JWT_SECRET } = getJwtSecrets();
+  const expiresIn = (process.env.JWT_ACCESS_EXPIRY || '15m') as SignOptions['expiresIn'];
+  return jwt.sign(payload, JWT_SECRET, { expiresIn });
 }
 
 export function generateRefreshToken(payload: TokenPayload): string {
-  const options: SignOptions = {
-    expiresIn: REFRESH_EXPIRY,
-    jwtid: randomUUID(),
-  }
-  return jwt.sign(payload, refreshSecret, options)
+  const { NEXTAUTH_SECRET } = getJwtSecrets();
+  const expiresIn = (process.env.JWT_REFRESH_EXPIRY || '7d') as SignOptions['expiresIn'];
+  return jwt.sign(payload, NEXTAUTH_SECRET, { expiresIn });
 }
 
 export function verifyAccessToken(token: string): TokenPayload | null {
   try {
-    return jwt.verify(token, accessSecret) as TokenPayload
+    const { JWT_SECRET } = getJwtSecrets();
+    return jwt.verify(token, JWT_SECRET) as TokenPayload;
   } catch {
-    return null
+    return null;
   }
 }
 
 export function verifyRefreshToken(token: string): TokenPayload | null {
   try {
-    return jwt.verify(token, refreshSecret) as TokenPayload
+    const { NEXTAUTH_SECRET } = getJwtSecrets();
+    return jwt.verify(token, NEXTAUTH_SECRET) as TokenPayload;
   } catch {
-    return null
+    return null;
   }
 }
 
