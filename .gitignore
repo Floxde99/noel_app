@@ -14,3 +14,4 @@ coverage/
 prisma/*.db
 prisma/*.db-journal
 public/uploads/*.webp
+package-lock.json
