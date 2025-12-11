@@ -4,6 +4,7 @@ out/
 .env
 .env.local
 .env.*.local
+.en.example
 *.log
 npm-debug.log*
 .DS_Store
@@ -15,3 +16,8 @@ prisma/*.db
 prisma/*.db-journal
 public/uploads/*.webp
 package-lock.json
+docker-compose.yml
+Dockerfile
+.dockerignore
+.vscode/
+*.md
