@@ -13,3 +13,4 @@ npm-debug.log*
 coverage/
 prisma/*.db
 prisma/*.db-journal
+public/uploads/*.webp
