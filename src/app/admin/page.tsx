@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { useAuth } from '@/components/providers/auth-provider'
 import { Button } from '@/components/ui/button'
@@ -65,17 +65,31 @@ interface Poll {
   _count: { votes: number }
 }
 
+interface MenuRecipe {
+  id: string
+  title: string
+  description?: string | null
+  eventId: string
+  _count?: { ingredients: number }
+}
+
 export default function AdminPage() {
   const { user, isLoading: authLoading, isAuthenticated, accessToken } = useAuth()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { toast } = useToast()
+
+  const isAdmin = user?.role === 'ADMIN'
   
-  const [activeTab, setActiveTab] = useState<'events' | 'codes' | 'users' | 'polls' | 'messages'>('events')
+  const [activeTab, setActiveTab] = useState<'events' | 'codes' | 'users' | 'polls' | 'messages' | 'menu'>(isAdmin ? 'events' : 'menu')
   const [events, setEvents] = useState<Event[]>([])
   const [codes, setCodes] = useState<EventCode[]>([])
   const [users, setUsers] = useState<User[]>([])
   const [polls, setPolls] = useState<Poll[]>([])
   const [messages, setMessages] = useState<any[]>([])
+  const [menuRecipes, setMenuRecipes] = useState<MenuRecipe[]>([])
+  const [selectedEventId, setSelectedEventId] = useState<string>('')
+  const [newRecipe, setNewRecipe] = useState({ title: '', description: '' })
   const [isLoading, setIsLoading] = useState(true)
 
   // Form states
@@ -105,55 +119,156 @@ export default function AdminPage() {
 
   // Auth check
   useEffect(() => {
-    if (!authLoading && (!isAuthenticated || user?.role !== 'ADMIN')) {
-      router.push('/dashboard')
-    }
+    if (!authLoading && !isAuthenticated) router.push('/login')
   }, [authLoading, isAuthenticated, user, router])
+
+  useEffect(() => {
+    if (!searchParams) return
+    const tab = searchParams.get('tab')
+    if (tab === 'menu') setActiveTab('menu')
+  }, [searchParams])
 
   // Fetch data
   const fetchData = useCallback(async () => {
     try {
       const headers = accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined
-      const [eventsRes, codesRes, usersRes, pollsRes, messagesRes] = await Promise.all([
-        fetch('/api/admin/events', { credentials: 'include', headers }),
-        fetch('/api/admin/codes', { credentials: 'include', headers }),
-        fetch('/api/admin/users', { credentials: 'include', headers }),
-        fetch('/api/admin/polls', { credentials: 'include', headers }),
-        fetch('/api/admin/messages', { credentials: 'include', headers }),
-      ])
 
-      if (eventsRes.ok) {
-        const data = await eventsRes.json()
-        setEvents(data.events || [])
-      }
-      if (codesRes.ok) {
-        const data = await codesRes.json()
-        setCodes(data.codes || [])
-      }
-      if (usersRes.ok) {
-        const data = await usersRes.json()
-        setUsers(Array.isArray(data) ? data : (data.users || []))
-      }
-      if (pollsRes.ok) {
-        const data = await pollsRes.json()
-        setPolls(data.polls || [])
-      }
-      if (messagesRes.ok) {
-        const data = await messagesRes.json()
-        setMessages(Array.isArray(data) ? data : data.messages || [])
+      if (isAdmin) {
+        const [eventsRes, codesRes, usersRes, pollsRes, messagesRes] = await Promise.all([
+          fetch('/api/admin/events', { credentials: 'include', headers }),
+          fetch('/api/admin/codes', { credentials: 'include', headers }),
+          fetch('/api/admin/users', { credentials: 'include', headers }),
+          fetch('/api/admin/polls', { credentials: 'include', headers }),
+          fetch('/api/admin/messages', { credentials: 'include', headers }),
+        ])
+
+        if (eventsRes.ok) {
+          const data = await eventsRes.json()
+          setEvents(data.events || [])
+        }
+        if (codesRes.ok) {
+          const data = await codesRes.json()
+          setCodes(data.codes || [])
+        }
+        if (usersRes.ok) {
+          const data = await usersRes.json()
+          setUsers(Array.isArray(data) ? data : (data.users || []))
+        }
+        if (pollsRes.ok) {
+          const data = await pollsRes.json()
+          setPolls(data.polls || [])
+        }
+        if (messagesRes.ok) {
+          const data = await messagesRes.json()
+          setMessages(Array.isArray(data) ? data : data.messages || [])
+        }
+      } else {
+        const eventsRes = await fetch('/api/events', { credentials: 'include', headers })
+        if (eventsRes.ok) {
+          const data = await eventsRes.json()
+          const mapped: Event[] = (data.events || []).map((e: any) => ({
+            id: e.id,
+            name: e.name,
+            date: e.date,
+            status: e.status,
+            _count: {
+              eventUsers: e.participantCount ?? 0,
+              contributions: e.contributionCount ?? 0,
+              tasks: e.taskCount ?? 0,
+            },
+          }))
+          setEvents(mapped)
+        }
+        setCodes([])
+        setUsers([])
+        setPolls([])
+        setMessages([])
       }
     } catch (error) {
       console.error('Failed to fetch admin data:', error)
     } finally {
       setIsLoading(false)
     }
-  }, [accessToken])
+  }, [accessToken, isAdmin])
 
   useEffect(() => {
-    if (isAuthenticated && user?.role === 'ADMIN') {
-      fetchData()
+    if (isAuthenticated) fetchData()
+  }, [isAuthenticated, fetchData])
+
+  useEffect(() => {
+    if (!selectedEventId && events.length > 0) {
+      setSelectedEventId(events[0].id)
     }
-  }, [isAuthenticated, user, fetchData])
+  }, [events, selectedEventId])
+
+  const fetchMenu = useCallback(async (eventId: string) => {
+    if (!eventId) return
+    try {
+      const res = await fetch(`/api/menu?eventId=${eventId}`, { credentials: 'include' })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data?.error || 'Impossible de charger le menu')
+      }
+      const data = await res.json()
+      setMenuRecipes(data.recipes || [])
+    } catch (e) {
+      toast({ title: 'Erreur', description: e instanceof Error ? e.message : 'Erreur', variant: 'destructive' })
+    }
+  }, [toast])
+
+  useEffect(() => {
+    if (activeTab === 'menu' && selectedEventId) {
+      fetchMenu(selectedEventId)
+    }
+  }, [activeTab, selectedEventId, fetchMenu])
+
+  const handleCreateRecipe = async () => {
+    if (!selectedEventId) {
+      toast({ title: 'Sélectionnez un événement', variant: 'destructive' })
+      return
+    }
+    if (!newRecipe.title.trim()) {
+      toast({ title: 'Titre requis', variant: 'destructive' })
+      return
+    }
+
+    try {
+      const res = await fetch('/api/menu', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          eventId: selectedEventId,
+          title: newRecipe.title.trim(),
+          description: newRecipe.description.trim() ? newRecipe.description.trim() : undefined,
+        }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data?.error || 'Impossible de créer la recette')
+      }
+      toast({ title: 'Recette créée', variant: 'success' })
+      setNewRecipe({ title: '', description: '' })
+      fetchMenu(selectedEventId)
+    } catch (e) {
+      toast({ title: 'Erreur', description: e instanceof Error ? e.message : 'Erreur', variant: 'destructive' })
+    }
+  }
+
+  const handleDeleteRecipe = async (id: string) => {
+    if (!confirm('Supprimer cette recette ?')) return
+    try {
+      const res = await fetch(`/api/menu/${id}`, { method: 'DELETE', credentials: 'include' })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data?.error || 'Impossible de supprimer la recette')
+      }
+      toast({ title: 'Recette supprimée', variant: 'success' })
+      fetchMenu(selectedEventId)
+    } catch (e) {
+      toast({ title: 'Erreur', description: e instanceof Error ? e.message : 'Erreur', variant: 'destructive' })
+    }
+  }
 
   // Handlers
   const handleCreateEvent = async () => {
@@ -381,10 +496,6 @@ export default function AdminPage() {
     )
   }
 
-  if (user?.role !== 'ADMIN') {
-    return null
-  }
-
   return (
     <div className="min-h-screen bg-transparent">
       {/* Header */}
@@ -399,7 +510,7 @@ export default function AdminPage() {
             </Link>
             <h1 className="text-xl font-bold flex items-center gap-2">
               <Settings className="h-5 w-5" />
-              Administration
+              {isAdmin ? 'Administration' : 'Menu'}
             </h1>
             <Button variant="ghost" onClick={fetchData}>
               <RefreshCw className="h-5 w-5" />
@@ -411,13 +522,20 @@ export default function AdminPage() {
       <main className="container mx-auto px-4 py-6">
         {/* Tabs */}
         <div className="flex flex-wrap gap-2 mb-6">
-          {[
-            { id: 'events', label: 'Événements', icon: Calendar, count: events?.length || 0 },
-            { id: 'codes', label: 'Codes', icon: Key, count: codes?.length || 0 },
-            { id: 'users', label: 'Utilisateurs', icon: Users, count: users?.length || 0 },
-            { id: 'polls', label: 'Sondages', icon: BarChart3, count: polls?.length || 0 },
-            { id: 'messages', label: 'Messages', icon: Lock, count: messages?.length || 0 },
-          ].map((tab) => (
+          {(
+            isAdmin
+              ? [
+                  { id: 'events', label: 'Événements', icon: Calendar, count: events?.length || 0 },
+                  { id: 'menu', label: 'Menu prévu', icon: ChefHat, count: menuRecipes?.length || 0 },
+                  { id: 'codes', label: 'Codes', icon: Key, count: codes?.length || 0 },
+                  { id: 'users', label: 'Utilisateurs', icon: Users, count: users?.length || 0 },
+                  { id: 'polls', label: 'Sondages', icon: BarChart3, count: polls?.length || 0 },
+                  { id: 'messages', label: 'Messages', icon: Lock, count: messages?.length || 0 },
+                ]
+              : [
+                  { id: 'menu', label: 'Menu prévu', icon: ChefHat, count: menuRecipes?.length || 0 },
+                ]
+          ).map((tab) => (
             <Button
               key={tab.id}
               variant={activeTab === tab.id ? 'default' : 'outline'}
@@ -433,8 +551,90 @@ export default function AdminPage() {
           ))}
         </div>
 
+        {/* Menu Tab */}
+        {activeTab === 'menu' && (
+          <div className="grid gap-6 lg:grid-cols-2">
+            <Card className="border-2 border-christmas-red">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <ChefHat className="h-5 w-5" />
+                  Menu prévu
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label>Événement</Label>
+                  <select
+                    className="w-full h-12 px-3 rounded-lg border-2 text-lg"
+                    value={selectedEventId}
+                    onChange={(e) => {
+                      setSelectedEventId(e.target.value)
+                      fetchMenu(e.target.value)
+                    }}
+                  >
+                    {events.map((e) => (
+                      <option key={e.id} value={e.id}>
+                        {e.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Nouvelle recette</Label>
+                  <Input
+                    placeholder="Ex: Gratin dauphinois"
+                    value={newRecipe.title}
+                    onChange={(e) => setNewRecipe({ ...newRecipe, title: e.target.value })}
+                  />
+                  <Input
+                    placeholder="Description (optionnel)"
+                    value={newRecipe.description}
+                    onChange={(e) => setNewRecipe({ ...newRecipe, description: e.target.value })}
+                  />
+                  <Button onClick={handleCreateRecipe} className="w-full">
+                    Créer la recette
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-2 border-christmas-red">
+              <CardHeader>
+                <CardTitle>Recettes</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  {menuRecipes.length === 0 ? (
+                    <p className="text-muted-foreground">Aucune recette pour l’instant.</p>
+                  ) : (
+                    menuRecipes.map((r) => (
+                      <div key={r.id} className="p-3 border rounded-lg flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="font-medium truncate">{r.title}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {r._count?.ingredients ?? 0} ingrédient(s)
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <Link href={`/admin/menu/${r.id}`}>
+                            <Button variant="outline">Ouvrir</Button>
+                          </Link>
+                          <Button variant="outline" onClick={() => handleDeleteRecipe(r.id)}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
         {/* Events Tab */}
-        {activeTab === 'events' && (
+        {isAdmin && activeTab === 'events' && (
           <div className="grid gap-6 lg:grid-cols-2">
             <Card className="border-2 border-christmas-red">
               <CardHeader>
@@ -499,22 +699,27 @@ export default function AdminPage() {
               <CardContent>
                 <div className="space-y-3">
                   {events.map((event) => (
-                    <div key={event.id} className="p-3 border rounded-lg flex items-center justify-between">
-                      <div>
-                        <div className="font-medium">{event.name}</div>
+                    <div key={event.id} className="p-3 border rounded-lg flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="font-medium truncate">{event.name}</div>
                         <div className="text-sm text-muted-foreground">
                           {formatDate(event.date, { weekday: undefined })} à {formatTime(event.date)}
                         </div>
-                        <div className="text-xs text-muted-foreground flex gap-3 mt-1">
+                        <div className="text-xs text-muted-foreground flex flex-wrap gap-3 mt-1">
                           <span>{event._count.eventUsers} participants</span>
                           <span>{event._count.contributions} contributions</span>
                         </div>
                       </div>
-                      <span className={`px-2 py-1 rounded text-xs ${
-                        event.status === 'OPEN' ? 'bg-green-100 text-green-800' : 'bg-gray-100'
-                      }`}>
-                        {event.status}
-                      </span>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className={`px-2 py-1 rounded text-xs ${
+                          event.status === 'OPEN' ? 'bg-green-100 text-green-800' : 'bg-gray-100'
+                        }`}>
+                          {event.status}
+                        </span>
+                        <Link href={`/admin/events/${event.id}`}>
+                          <Button size="sm" variant="outline">Éditer</Button>
+                        </Link>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -524,7 +729,7 @@ export default function AdminPage() {
         )}
 
         {/* Codes Tab */}
-        {activeTab === 'codes' && (
+        {isAdmin && activeTab === 'codes' && (
           <div className="grid gap-6 lg:grid-cols-2">
             <Card className="border-2 border-christmas-red">
               <CardHeader>
@@ -628,7 +833,7 @@ export default function AdminPage() {
         )}
 
         {/* Users Tab */}
-        {activeTab === 'users' && (
+        {isAdmin && activeTab === 'users' && (
           <div className="grid gap-6 lg:grid-cols-2">
             <Card className="border-2 border-christmas-red">
               <CardHeader>
@@ -704,7 +909,7 @@ export default function AdminPage() {
         )}
 
         {/* Polls Tab */}
-        {activeTab === 'polls' && (
+        {isAdmin && activeTab === 'polls' && (
           <div className="grid gap-6 lg:grid-cols-2">
             <Card className="border-2 border-christmas-red">
               <CardHeader>
@@ -802,7 +1007,7 @@ export default function AdminPage() {
         )}
 
         {/* Messages Tab */}
-        {activeTab === 'messages' && (
+        {isAdmin && activeTab === 'messages' && (
           <Card className="border-2 border-christmas-red">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">

@@ -25,6 +25,7 @@ import {
   Sparkles
 } from 'lucide-react'
 
+
 interface Event {
   id: string
   name: string
@@ -169,6 +170,13 @@ export default function DashboardPage() {
                   <Button variant="ghost" className="gap-2">
                     <span className="text-2xl">{user?.avatar || '👤'}</span>
                     <span className="hidden sm:inline">{user?.name}</span>
+                  </Button>
+                </Link>
+
+                <Link href="/admin?tab=menu">
+                  <Button variant="outline" size="sm" className="gap-2">
+                    <ChefHat className="h-4 w-4" />
+                    <span className="hidden sm:inline">Menu</span>
                   </Button>
                 </Link>
                 

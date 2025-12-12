@@ -8,9 +8,9 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useToast } from '@/hooks/use-toast'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, Trash2, Loader2 } from 'lucide-react'
 
-export default function EditEventPage({ params }: { params: { id: string } }) {
+export default function EditEventPage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter()
   const { toast } = useToast()
   const [event, setEvent] = useState<any>(null)
@@ -19,55 +19,120 @@ export default function EditEventPage({ params }: { params: { id: string } }) {
     name: '',
     description: '',
     date: '',
+    time: '',
     endDate: '',
+    endTime: '',
     location: '',
+    mapUrl: '',
     status: 'OPEN',
   })
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [eventId, setEventId] = useState<string | null>(null)
+
+  useEffect(() => {
+    let canceled = false
+    params.then(({ id }) => {
+      if (!canceled) {
+        setEventId(id)
+      }
+    })
+    return () => {
+      canceled = true
+    }
+  }, [params])
 
   const loadEvent = useCallback(async () => {
+    if (!eventId) return
     try {
-      const token = localStorage.getItem('access_token')
-      const res = await fetch(`/api/admin/events/${params.id}`, {
-        headers: { Authorization: `Bearer ${token}` },
+      const res = await fetch(`/api/admin/events/${eventId}`, {
+        credentials: 'include',
       })
-      if (!res.ok) throw new Error('Erreur')
       const data = await res.json()
+      if (!res.ok) {
+        throw new Error(data?.error || `Erreur ${res.status}`)
+      }
       setEvent(data)
+      const dateObj = data.date ? new Date(data.date) : null
+      const endDateObj = data.endDate ? new Date(data.endDate) : null
       setFormData({
         name: data.name,
         description: data.description || '',
-        date: data.date ? new Date(data.date).toISOString().split('T')[0] : '',
-        endDate: data.endDate ? new Date(data.endDate).toISOString().split('T')[0] : '',
+        date: dateObj ? dateObj.toISOString().split('T')[0] : '',
+        time: dateObj ? dateObj.toTimeString().substring(0, 5) : '',
+        endDate: endDateObj ? endDateObj.toISOString().split('T')[0] : '',
+        endTime: endDateObj ? endDateObj.toTimeString().substring(0, 5) : '',
         location: data.location || '',
+        mapUrl: data.mapUrl || '',
         status: data.status,
       })
     } catch (error) {
-      toast({ title: 'Erreur', description: 'Impossible de charger l\'événement', variant: 'destructive' })
+      console.error('Erreur chargement événement:', error)
+      toast({ title: 'Erreur', description: error instanceof Error ? error.message : 'Impossible de charger l\'événement', variant: 'destructive' })
     } finally {
       setLoading(false)
     }
-  }, [params.id, toast])
+  }, [eventId, toast])
 
   useEffect(() => {
     loadEvent()
   }, [loadEvent])
 
   const handleSave = async () => {
+    if (!eventId) return
     try {
-      const token = localStorage.getItem('access_token')
-      const res = await fetch(`/api/admin/events/${params.id}`, {
+      const payload: any = {
+        name: formData.name,
+        description: formData.description || null,
+        status: formData.status,
+        location: formData.location || null,
+        mapUrl: formData.mapUrl || null,
+      }
+      if (formData.date && formData.time) {
+        payload.date = new Date(`${formData.date}T${formData.time}`).toISOString()
+      }
+      if (formData.endDate && formData.endTime) {
+        payload.endDate = new Date(`${formData.endDate}T${formData.endTime}`).toISOString()
+      } else if (formData.endDate) {
+        payload.endDate = new Date(`${formData.endDate}T00:00`).toISOString()
+      }
+      const res = await fetch(`/api/admin/events/${eventId}`, {
         method: 'PATCH',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(payload),
       })
-      if (!res.ok) throw new Error('Erreur')
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data?.error || 'Erreur')
+      }
       toast({ title: 'Événement mis à jour !' })
       router.push('/admin')
     } catch (error) {
-      toast({ title: 'Erreur', variant: 'destructive' })
+      toast({ title: 'Erreur', description: error instanceof Error ? error.message : 'Erreur interne', variant: 'destructive' })
+    }
+  }
+
+  const handleDelete = async () => {
+    if (!eventId) return
+    if (!confirm('Supprimer définitivement cet événement ? Cette action est irréversible.')) return
+    setIsDeleting(true)
+    try {
+      const res = await fetch(`/api/admin/events/${eventId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data?.error || 'Impossible de supprimer')
+      }
+      toast({ title: 'Événement supprimé', variant: 'success' })
+      router.push('/admin')
+    } catch (error) {
+      toast({ title: 'Erreur', description: error instanceof Error ? error.message : 'Erreur', variant: 'destructive' })
+    } finally {
+      setIsDeleting(false)
     }
   }
 
@@ -102,6 +167,7 @@ export default function EditEventPage({ params }: { params: { id: string } }) {
                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                 className="w-full mt-2 p-2 border rounded"
                 rows={4}
+                placeholder="Détails de l'événement..."
               />
             </div>
 
@@ -116,11 +182,32 @@ export default function EditEventPage({ params }: { params: { id: string } }) {
                 />
               </div>
               <div>
-                <Label>Date de fin</Label>
+                <Label>Heure de début</Label>
+                <Input
+                  type="time"
+                  value={formData.time}
+                  onChange={(e) => setFormData({ ...formData, time: e.target.value })}
+                  className="mt-2"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Date de fin (optionnel)</Label>
                 <Input
                   type="date"
                   value={formData.endDate}
                   onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
+                  className="mt-2"
+                />
+              </div>
+              <div>
+                <Label>Heure de fin (optionnel)</Label>
+                <Input
+                  type="time"
+                  value={formData.endTime}
+                  onChange={(e) => setFormData({ ...formData, endTime: e.target.value })}
                   className="mt-2"
                 />
               </div>
@@ -132,6 +219,17 @@ export default function EditEventPage({ params }: { params: { id: string } }) {
                 value={formData.location}
                 onChange={(e) => setFormData({ ...formData, location: e.target.value })}
                 className="mt-2"
+                placeholder="Adresse ou nom du lieu"
+              />
+            </div>
+
+            <div>
+              <Label>Lien Google Maps (optionnel)</Label>
+              <Input
+                value={formData.mapUrl}
+                onChange={(e) => setFormData({ ...formData, mapUrl: e.target.value })}
+                className="mt-2"
+                placeholder="https://maps.google.com/..."
               />
             </div>
 
@@ -154,6 +252,27 @@ export default function EditEventPage({ params }: { params: { id: string } }) {
               </Button>
               <Button onClick={() => router.push('/admin')} variant="outline" className="flex-1">
                 Annuler
+              </Button>
+            </div>
+
+            <div className="pt-4 border-t">
+              <Button
+                onClick={handleDelete}
+                disabled={isDeleting}
+                variant="destructive"
+                className="w-full"
+              >
+                {isDeleting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    Suppression...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Supprimer l&apos;événement
+                  </>
+                )}
               </Button>
             </div>
           </CardContent>

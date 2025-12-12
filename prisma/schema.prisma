@@ -64,6 +64,7 @@ model User {
   assignedTasks  Task[]          @relation("AssignedTasks")
   createdTasks   Task[]          @relation("CreatedTasks")
   chatMessages   ChatMessage[]
+  createdMenuRecipes MenuRecipe[] @relation("CreatedMenuRecipes")
 
   @@index([name])
   @@index([email])
@@ -110,6 +111,7 @@ model Event {
   polls         Poll[]
   tasks         Task[]
   chatMessages  ChatMessage[]
+  menuRecipes   MenuRecipe[]
 
   @@index([status])
   @@index([date])
@@ -189,10 +191,48 @@ model Contribution {
   // Relations
   event    Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
   assignee User? @relation(fields: [assigneeId], references: [id], onDelete: SetNull)
+  menuIngredient MenuIngredient? @relation("IngredientContribution")
 
   @@index([eventId])
   @@index([assigneeId])
   @@index([status])
+}
+
+// ============================================
+// MENU (RECIPES + INGREDIENTS)
+// ============================================
+model MenuRecipe {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  eventId     String
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  event      Event           @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  createdBy  User?           @relation("CreatedMenuRecipes", fields: [createdById], references: [id], onDelete: SetNull)
+  ingredients MenuIngredient[]
+
+  @@index([eventId])
+  @@index([createdById])
+}
+
+model MenuIngredient {
+  id             String   @id @default(cuid())
+  recipeId       String
+  name           String
+  details        String?
+  contributionId String?  @unique
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Relations
+  recipe       MenuRecipe   @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  contribution Contribution? @relation("IngredientContribution", fields: [contributionId], references: [id], onDelete: SetNull)
+
+  @@index([recipeId])
 }
 
 // ============================================

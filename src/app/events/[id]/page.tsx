@@ -80,6 +80,20 @@ interface Task {
   createdBy?: User
 }
 
+interface MenuIngredient {
+  id: string
+  name: string
+  details?: string | null
+  contribution?: Contribution | null
+}
+
+interface MenuRecipe {
+  id: string
+  title: string
+  description?: string | null
+  ingredients: MenuIngredient[]
+}
+
 interface ChatMessage {
   id: string
   content: string
@@ -104,6 +118,7 @@ interface Event {
   status: 'DRAFT' | 'OPEN' | 'CLOSED'
   participants: User[]
   contributions: Contribution[]
+  menuRecipes: MenuRecipe[]
   polls: Poll[]
   tasks: Task[]
   chatMessages: ChatMessage[]
@@ -121,7 +136,7 @@ export default function EventPage() {
   
   const [event, setEvent] = useState<Event | null>(null)
   const [isLoading, setIsLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<'contributions' | 'polls' | 'tasks' | 'chat'>('contributions')
+  const [activeTab, setActiveTab] = useState<'contributions' | 'menu' | 'polls' | 'tasks' | 'chat'>('contributions')
   const [isContribDialogOpen, setIsContribDialogOpen] = useState(false)
   const [sortCategory, setSortCategory] = useState<string | null>(null)
   const [editingContribId, setEditingContribId] = useState<string | null>(null)
@@ -141,6 +156,9 @@ export default function EventPage() {
   const [chatImageUrls, setChatImageUrls] = useState<string[]>([])
   const [chatImagePreviews, setChatImagePreviews] = useState<string[]>([])
   const [selectedVotes, setSelectedVotes] = useState<Record<string, string[]>>({})
+  const [newRecipe, setNewRecipe] = useState({ title: '', description: '' })
+  const [newIngredient, setNewIngredient] = useState<Record<string, { name: string; details: string }>>({})
+  const [claimingIngredientId, setClaimingIngredientId] = useState<string | null>(null)
   // Fetch event data
   const fetchEvent = useCallback(async () => {
     try {
@@ -335,6 +353,92 @@ export default function EventPage() {
     }
   }
 
+  const handleCreateRecipe = async () => {
+    if (!eventId) {
+      toast({ title: 'Erreur', description: 'Événement introuvable', variant: 'destructive' })
+      return
+    }
+
+    if (!newRecipe.title.trim()) {
+      toast({ title: 'Titre requis', description: 'Ajoutez un nom de recette', variant: 'destructive' })
+      return
+    }
+
+    try {
+      const res = await fetch('/api/menu', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          eventId,
+          title: newRecipe.title.trim(),
+          description: newRecipe.description.trim() || null,
+        }),
+      })
+
+      if (res.ok) {
+        toast({ title: 'Recette ajoutée', variant: 'success' })
+        setNewRecipe({ title: '', description: '' })
+        fetchEvent()
+      } else {
+        const data = await res.json().catch(() => null)
+        toast({ title: 'Erreur', description: data?.error || 'Impossible d’ajouter la recette', variant: 'destructive' })
+      }
+    } catch (error) {
+      toast({ title: 'Erreur', description: 'Impossible d’ajouter la recette', variant: 'destructive' })
+    }
+  }
+
+  const handleAddIngredient = async (recipeId: string) => {
+    const form = newIngredient[recipeId] || { name: '', details: '' }
+    if (!form.name.trim()) {
+      toast({ title: 'Nom requis', description: 'Ajoutez un ingrédient', variant: 'destructive' })
+      return
+    }
+
+    try {
+      const res = await fetch(`/api/menu/${recipeId}/ingredients`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ name: form.name.trim(), details: form.details.trim() || null }),
+      })
+
+      if (res.ok) {
+        toast({ title: 'Ingrédient ajouté', variant: 'success' })
+        setNewIngredient((prev) => ({ ...prev, [recipeId]: { name: '', details: '' } }))
+        fetchEvent()
+      } else {
+        const data = await res.json().catch(() => null)
+        toast({ title: 'Erreur', description: data?.error || 'Ajout impossible', variant: 'destructive' })
+      }
+    } catch (error) {
+      toast({ title: 'Erreur', description: 'Ajout impossible', variant: 'destructive' })
+    }
+  }
+
+  const handleClaimIngredient = async (ingredientId: string) => {
+    setClaimingIngredientId(ingredientId)
+    try {
+      const res = await fetch(`/api/menu/ingredients/${ingredientId}/claim`, {
+        method: 'POST',
+        credentials: 'include',
+      })
+
+      if (res.ok) {
+        toast({ title: 'Pris en charge', description: 'Merci !', variant: 'success' })
+        fetchEvent()
+      } else {
+        const data = await res.json().catch(() => null)
+        toast({ title: 'Erreur', description: data?.error || 'Impossible de réserver', variant: 'destructive' })
+      }
+    } catch (error) {
+      toast({ title: 'Erreur', description: 'Impossible de réserver', variant: 'destructive' })
+    } finally {
+      setClaimingIngredientId(null)
+    }
+  }
+
   // Handlers
   const handleAddContribution = async () => {
     if (!eventId) {
@@ -512,6 +616,35 @@ export default function EventPage() {
     } catch (error) {
       console.error('Update task network error', error)
       toast({ title: 'Erreur', variant: 'destructive' })
+    }
+  }
+
+  const handleDeleteTask = async (id: string) => {
+    const confirmed = window.confirm('Supprimer cette tâche ?')
+    if (!confirmed) return
+
+    try {
+      const res = await fetch(`/api/tasks/${id}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      })
+
+      if (res.ok) {
+        toast({ title: 'Tâche supprimée', variant: 'success' })
+        fetchEvent()
+        return
+      }
+
+      let errMsg = 'Impossible de supprimer la tâche'
+      try {
+        const data = await res.json()
+        if (data?.error) errMsg = data.error
+      } catch (e) {
+        // ignore
+      }
+      toast({ title: 'Erreur', description: errMsg, variant: 'destructive' })
+    } catch (error) {
+      toast({ title: 'Erreur', description: 'Impossible de supprimer la tâche', variant: 'destructive' })
     }
   }
 
@@ -782,6 +915,7 @@ export default function EventPage() {
       case 'plat': return '🍽️'
       case 'boisson': return '🍷'
       case 'décor': return '🎄'
+      case 'ingredient': return '🧄'
       default: return '🎁'
     }
   }
@@ -891,6 +1025,7 @@ export default function EventPage() {
         <div className="flex flex-wrap gap-2 mb-6 no-print">
           {[
             { id: 'contributions', label: 'Contributions', icon: ChefHat, count: event.contributions.length },
+            { id: 'menu', label: 'Menu', icon: Sparkles, count: event.menuRecipes?.length || 0 },
             { id: 'polls', label: 'Sondages', icon: BarChart3, count: event.polls.length },
             { id: 'tasks', label: 'Tâches', icon: ClipboardList, count: event.tasks.length },
             { id: 'chat', label: 'Discussion', icon: MessageCircle, count: event.chatMessages.length },
@@ -912,6 +1047,119 @@ export default function EventPage() {
 
         {/* Tab Content */}
         <div className="space-y-6">
+          {/* Menu Tab */}
+          {activeTab === 'menu' && (
+            <div className="space-y-6">
+              <Card className="border-2 border-christmas-green">
+                <CardHeader className="bg-gradient-to-r from-christmas-green to-christmas-red text-white">
+                  <CardTitle className="flex items-center justify-between">
+                    <span>🍽️ Menu de l'événement</span>
+                  </CardTitle>
+                  <CardDescription className="text-white/90">
+                    Ajoutez des recettes et laissez chacun prendre des ingrédients.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid sm:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="recipe-title">Nom de la recette</Label>
+                      <Input id="recipe-title" placeholder="Ex: Dinde rôtie" value={newRecipe.title} onChange={(e) => setNewRecipe({ ...newRecipe, title: e.target.value })} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="recipe-desc">Description (optionnel)</Label>
+                      <Input id="recipe-desc" placeholder="Détails..." value={newRecipe.description} onChange={(e) => setNewRecipe({ ...newRecipe, description: e.target.value })} />
+                    </div>
+                  </div>
+                  <Button onClick={handleCreateRecipe} className="w-full sm:w-auto">
+                    <Plus className="mr-2 h-4 w-4" /> Ajouter la recette
+                  </Button>
+                </CardContent>
+              </Card>
+
+              {event.menuRecipes?.length ? (
+                event.menuRecipes.map((recipe) => (
+                  <Card key={recipe.id} className="border-2 border-christmas-green/60">
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <Sparkles className="h-5 w-5 text-christmas-green" /> {recipe.title}
+                      </CardTitle>
+                      {recipe.description && <CardDescription>{recipe.description}</CardDescription>}
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="grid sm:grid-cols-2 gap-4 items-end">
+                        <div className="space-y-2">
+                          <Label>Ingrédient</Label>
+                          <Input
+                            placeholder="Ex: Pommes de terre"
+                            value={newIngredient[recipe.id]?.name || ''}
+                            onChange={(e) => setNewIngredient((prev) => ({ ...prev, [recipe.id]: { ...(prev[recipe.id] || { name: '', details: '' }), name: e.target.value } }))}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Détails (optionnel)</Label>
+                          <Input
+                            placeholder="Quantité, marque..."
+                            value={newIngredient[recipe.id]?.details || ''}
+                            onChange={(e) => setNewIngredient((prev) => ({ ...prev, [recipe.id]: { ...(prev[recipe.id] || { name: '', details: '' }), details: e.target.value } }))}
+                          />
+                        </div>
+                        <div>
+                          <Button onClick={() => handleAddIngredient(recipe.id)} className="w-full sm:w-auto">
+                            <Plus className="mr-2 h-4 w-4" /> Ajouter l'ingrédient
+                          </Button>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label className="font-semibold">Liste des ingrédients</Label>
+                        <div className="space-y-2">
+                          {recipe.ingredients.length === 0 && (
+                            <div className="text-gray-600">Aucun ingrédient ajouté pour l'instant.</div>
+                          )}
+                          {recipe.ingredients.map((ing) => (
+                            <div key={ing.id} className="flex items-center justify-between bg-white/70 border rounded-lg p-3">
+                              <div className="flex-1">
+                                <div className="font-medium">
+                                  {ing.name}
+                                  {ing.details ? <span className="text-gray-600"> — {ing.details}</span> : null}
+                                </div>
+                                {ing.contribution?.assignee ? (
+                                  <div className="text-sm text-green-700">Pris en charge par {ing.contribution.assignee.name}</div>
+                                ) : (
+                                  <div className="text-sm text-gray-500">Disponible</div>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2">
+                                {!ing.contribution?.assignee && (
+                                  <Button
+                                    size="sm"
+                                    onClick={() => handleClaimIngredient(ing.id)}
+                                    disabled={claimingIngredientId === ing.id}
+                                    className="no-print"
+                                  >
+                                    {claimingIngredientId === ing.id ? (
+                                      <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                                    ) : (
+                                      <Check className="h-4 w-4 mr-1" />
+                                    )}
+                                    Je m’en occupe
+                                  </Button>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))
+              ) : (
+                <Card>
+                  <CardContent className="py-6 text-center text-gray-700">Aucune recette encore. Ajoutez-en une pour commencer.</CardContent>
+                </Card>
+              )}
+            </div>
+          )}
           {/* Contributions Tab */}
           {activeTab === 'contributions' && (
             <div className="space-y-6">
@@ -954,6 +1202,7 @@ export default function EventPage() {
                         <option value="plat">🍽️ Plat</option>
                         <option value="boisson">🍷 Boisson</option>
                         <option value="décor">🎄 Décoration</option>
+                        <option value="ingredient">🧄 Ingrédient</option>
                         <option value="autre">🎁 Autre</option>
                       </select>
                     </div>
@@ -1015,6 +1264,7 @@ export default function EventPage() {
                         <option value="plat">🍽️ Plats</option>
                         <option value="boisson">🍷 Boissons</option>
                         <option value="décor">🎄 Décorations</option>
+                        <option value="ingredient">🧄 Ingrédients</option>
                         <option value="autre">🎁 Autres</option>
                       </select>
                     </div>
@@ -1068,6 +1318,7 @@ export default function EventPage() {
                                             <option value="plat">🍽️ Plat</option>
                                             <option value="boisson">🍷 Boisson</option>
                                             <option value="décor">🎄 Décoration</option>
+                                            <option value="ingredient">🧄 Ingrédient</option>
                                             <option value="autre">🎁 Autre</option>
                                           </select>
                                         </div>
@@ -1510,7 +1761,7 @@ export default function EventPage() {
                   // Afficher les tâches publiques pour tout le monde
                   if (!t.isPrivate) return t.status === status
                   // Afficher les tâches privées seulement au créateur
-                  return t.status === status && t.createdBy?.id === user?.id
+                  return t.status === status && (t.createdBy?.id === user?.id || user?.role === 'ADMIN')
                 })
                 
                 return (
@@ -1560,44 +1811,54 @@ export default function EventPage() {
                                 </div>
                               </div>
                               <div className="flex gap-2 items-center">
-                              {(task.assignee?.id === user?.id || task.createdBy?.id === user?.id || user?.role === 'ADMIN') && task.status !== 'DONE' && (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => handleUpdateTaskStatus(
-                                    task.id,
-                                    task.status === 'TODO' ? 'IN_PROGRESS' : 'DONE'
-                                  )}
-                                  className="no-print"
-                                >
-                                  {task.status === 'TODO' ? 'Commencer' : 'Terminer'}
-                                </Button>
-                              )}
+                                {(task.assignee?.id === user?.id || task.createdBy?.id === user?.id || user?.role === 'ADMIN') && (
+                                  <select
+                                    value={task.status}
+                                    onChange={(e) => handleUpdateTaskStatus(task.id, e.target.value)}
+                                    className="h-9 px-2 rounded-lg border-2 text-sm bg-white no-print"
+                                    aria-label="Changer le statut"
+                                  >
+                                    <option value="TODO">À faire</option>
+                                    <option value="IN_PROGRESS">En cours</option>
+                                    <option value="DONE">Terminé</option>
+                                  </select>
+                                )}
 
-                              {(task.assignee?.id === user?.id || task.createdBy?.id === user?.id || user?.role === 'ADMIN') && (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => {
-                                    setEditingTaskId(task.id)
-                                    const toLocalDatetimeInput = (d: string) => {
-                                      const date = new Date(d)
-                                      const pad = (n: number) => String(n).padStart(2, '0')
-                                      const yyyy = date.getFullYear()
-                                      const mm = pad(date.getMonth() + 1)
-                                      const dd = pad(date.getDate())
-                                      const hh = pad(date.getHours())
-                                      const min = pad(date.getMinutes())
-                                      return `${yyyy}-${mm}-${dd}T${hh}:${min}`
-                                    }
-                                    setEditingTask({ title: task.title, description: task.description || '', dueDate: task.dueDate ? toLocalDatetimeInput(task.dueDate) : '' })
-                                    setIsEditTaskDialogOpen(true)
-                                  }}
-                                  className="no-print"
-                                >
-                                  ✏️ Éditer
-                                </Button>
-                              )}
+                                {(task.assignee?.id === user?.id || task.createdBy?.id === user?.id || user?.role === 'ADMIN') && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => {
+                                      setEditingTaskId(task.id)
+                                      const toLocalDatetimeInput = (d: string) => {
+                                        const date = new Date(d)
+                                        const pad = (n: number) => String(n).padStart(2, '0')
+                                        const yyyy = date.getFullYear()
+                                        const mm = pad(date.getMonth() + 1)
+                                        const dd = pad(date.getDate())
+                                        const hh = pad(date.getHours())
+                                        const min = pad(date.getMinutes())
+                                        return `${yyyy}-${mm}-${dd}T${hh}:${min}`
+                                      }
+                                      setEditingTask({ title: task.title, description: task.description || '', dueDate: task.dueDate ? toLocalDatetimeInput(task.dueDate) : '' })
+                                      setIsEditTaskDialogOpen(true)
+                                    }}
+                                    className="no-print"
+                                  >
+                                    ✏️ Éditer
+                                  </Button>
+                                )}
+
+                                {(task.createdBy?.id === user?.id || user?.role === 'ADMIN') && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => handleDeleteTask(task.id)}
+                                    className="no-print"
+                                  >
+                                    🗑️ Supprimer
+                                  </Button>
+                                )}
                               </div>
                             </div>
                           ))}
@@ -1745,7 +2006,8 @@ export default function EventPage() {
                         <span className="font-medium">
                           {selectedContribForDetail.category === 'plat' ? 'Plat' : 
                            selectedContribForDetail.category === 'boisson' ? 'Boisson' : 
-                           selectedContribForDetail.category === 'décor' ? 'Décoration' : 'Autre'}
+                          selectedContribForDetail.category === 'décor' ? 'Décoration' :
+                          selectedContribForDetail.category === 'ingredient' ? 'Ingrédient' : 'Autre'}
                         </span>
                       </div>
                     </div>

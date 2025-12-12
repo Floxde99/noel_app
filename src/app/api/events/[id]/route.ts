@@ -127,6 +127,23 @@ export async function GET(
           orderBy: { createdAt: 'desc' },
           take: 50, // Last 50 messages
         },
+        menuRecipes: {
+          orderBy: { createdAt: 'asc' },
+          include: {
+            ingredients: {
+              orderBy: { createdAt: 'asc' },
+              include: {
+                contribution: {
+                  include: {
+                    assignee: {
+                      select: { id: true, name: true, avatar: true },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
         eventCodes: payload.role === 'ADMIN' ? true : false,
       },
     })

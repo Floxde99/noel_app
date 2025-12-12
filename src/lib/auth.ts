@@ -7,8 +7,22 @@ function getJwtSecrets() {
   const JWT_SECRET = process.env.JWT_SECRET;
   const NEXTAUTH_SECRET = process.env.NEXTAUTH_SECRET;
 
+  // In production we require explicit secrets. In development, provide
+  // a fallback so `npm run dev` works without env setup (but log a warning).
   if (!JWT_SECRET || !NEXTAUTH_SECRET) {
-    throw new Error('JWT secrets must be defined');
+    const missing = [] as string[]
+    if (!JWT_SECRET) missing.push('JWT_SECRET')
+    if (!NEXTAUTH_SECRET) missing.push('NEXTAUTH_SECRET')
+
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error(`JWT secrets must be defined. Missing: ${missing.join(', ')}.`)
+    }
+
+    console.warn(`Warning: Missing JWT secrets (${missing.join(', ')}). Using insecure development defaults.`)
+    return {
+      JWT_SECRET: JWT_SECRET || 'dev-jwt-secret-change-me',
+      NEXTAUTH_SECRET: NEXTAUTH_SECRET || 'dev-nextauth-secret-change-me',
+    }
   }
 
   return { JWT_SECRET, NEXTAUTH_SECRET };

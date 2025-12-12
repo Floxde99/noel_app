@@ -36,7 +36,7 @@ export const createEventCodeSchema = z.object({
 export const createContributionSchema = z.object({
   title: z.string().min(2).max(100),
   description: z.string().max(500).optional(),
-  category: z.enum(['plat', 'boisson', 'décor', 'autre']).optional(),
+  category: z.enum(['plat', 'boisson', 'décor', 'autre', 'ingredient']).optional(),
   quantity: z.number().int().min(1).max(100).default(1),
   imageUrl: z.union([z.string().url(), z.string().regex(/^\/uploads\/.+/)]).optional(),
   eventId: z.string().cuid(),
@@ -46,10 +46,32 @@ export const createContributionSchema = z.object({
 export const updateContributionSchema = z.object({
   title: z.string().min(2).max(100).optional(),
   description: z.string().max(500).optional(),
-  category: z.enum(['plat', 'boisson', 'décor', 'autre']).optional(),
+  category: z.enum(['plat', 'boisson', 'décor', 'autre', 'ingredient']).optional(),
   quantity: z.number().int().min(1).max(100).optional(),
   status: z.enum(['PLANNED', 'CONFIRMED', 'BROUGHT']).optional(),
   assigneeId: z.string().cuid().optional().nullable(),
+})
+
+// Menu schemas
+export const createMenuRecipeSchema = z.object({
+  eventId: z.string().cuid(),
+  title: z.string().min(2).max(120),
+  description: z.string().max(1000).optional().nullable(),
+})
+
+export const updateMenuRecipeSchema = z.object({
+  title: z.string().min(2).max(120).optional(),
+  description: z.string().max(1000).optional().nullable(),
+})
+
+export const createMenuIngredientSchema = z.object({
+  name: z.string().min(1).max(120),
+  details: z.string().max(500).optional().nullable(),
+})
+
+export const updateMenuIngredientSchema = z.object({
+  name: z.string().min(1).max(120).optional(),
+  details: z.string().max(500).optional().nullable(),
 })
 
 // Poll schemas
