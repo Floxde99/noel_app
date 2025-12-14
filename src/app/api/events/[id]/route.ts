@@ -185,11 +185,20 @@ export async function GET(
         description?: string | null
         type: 'SINGLE' | 'MULTIPLE'
         isClosed: boolean
+        imageUrl?: string | null
+        createdById?: string | null
         createdBy?: { id: string; name: string; avatar?: string | null } | null
         options: Array<{ id: string; label: string; _count: { votes: number }; votes: Array<{ user: { id: string; name: string; avatar?: string | null } }> }>
         votes: Array<{ optionId: string }>
       }) => ({
-        ...poll,
+        id: poll.id,
+        title: poll.title,
+        description: poll.description,
+        type: poll.type,
+        isClosed: poll.isClosed,
+        imageUrl: poll.imageUrl,
+        createdBy: poll.createdBy,
+        createdById: poll.createdById,
         options: poll.options.map((option: { id: string; label: string; _count: { votes: number }; votes: Array<{ user: { id: string; name: string; avatar?: string | null } }> }) => ({
           id: option.id,
           label: option.label,

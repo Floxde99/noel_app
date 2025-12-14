@@ -67,6 +67,9 @@ interface Poll {
   description?: string
   type: 'SINGLE' | 'MULTIPLE'
   isClosed: boolean
+  imageUrl?: string
+  createdBy?: User
+  createdById?: string
   options: PollOption[]
   hasVoted: boolean
   userVotes: string[]
@@ -155,6 +158,9 @@ export default function EventPage() {
   const [isEditTaskDialogOpen, setIsEditTaskDialogOpen] = useState(false)
   const [newPoll, setNewPoll] = useState({ title: '', description: '', type: 'SINGLE', options: ['', ''], imageUrl: '', pollImagePreview: '' })
   const [isPollDialogOpen, setIsPollDialogOpen] = useState(false)
+  const [editingPollId, setEditingPollId] = useState<string | null>(null)
+  const [editingPoll, setEditingPoll] = useState({ title: '', description: '', type: 'SINGLE', options: ['', ''], imageUrl: '', pollImagePreview: '' })
+  const [isEditPollDialogOpen, setIsEditPollDialogOpen] = useState(false)
   const [newMessage, setNewMessage] = useState('')
   const [chatImageUrls, setChatImageUrls] = useState<string[]>([])
   const [chatImagePreviews, setChatImagePreviews] = useState<string[]>([])
@@ -833,6 +839,86 @@ export default function EventPage() {
     } catch (error) {
       toast({
         title: 'Erreur',
+        variant: 'destructive',
+      })
+    }
+  }
+
+  const handleEditPoll = (poll: Poll) => {
+    setEditingPollId(poll.id)
+    setEditingPoll({
+      title: poll.title,
+      description: poll.description || '',
+      type: poll.type,
+      options: poll.options.map((o) => o.label),
+      imageUrl: poll.imageUrl || '',
+      pollImagePreview: poll.imageUrl || '',
+    })
+    setIsEditPollDialogOpen(true)
+  }
+
+  const handleSavePoll = async () => {
+    if (!editingPollId) return
+    if (!editingPoll.title.trim()) {
+      toast({ title: 'Titre requis', variant: 'destructive' })
+      return
+    }
+
+    const validOptions = editingPoll.options
+      .map((o) => o.trim())
+      .filter(Boolean)
+    if (validOptions.length < 2) {
+      toast({
+        title: 'Options insuffisantes',
+        description: 'Veuillez ajouter au moins 2 options',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    try {
+      const description = editingPoll.description.trim() || undefined
+      const imageUrl = editingPoll.imageUrl || undefined
+
+      const response = await fetch(`/api/polls/${editingPollId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          title: editingPoll.title.trim(),
+          description,
+          type: editingPoll.type,
+          imageUrl,
+          options: validOptions.map((label) => ({ label })),
+        }),
+      })
+
+      if (response.ok) {
+        toast({
+          title: 'Succès',
+          description: 'Sondage modifié avec succès',
+        })
+        setEditingPollId(null)
+        setIsEditPollDialogOpen(false)
+        fetchEvent()
+      } else {
+        let errMsg = 'Impossible de modifier le sondage'
+        try {
+          const data = await response.json()
+          if (data?.error) errMsg = data.error
+        } catch (e) {
+          // ignore
+        }
+        toast({
+          title: 'Erreur',
+          description: errMsg,
+          variant: 'destructive',
+        })
+      }
+    } catch (error) {
+      toast({
+        title: 'Erreur',
+        description: 'Impossible de modifier le sondage',
         variant: 'destructive',
       })
     }
@@ -1612,6 +1698,87 @@ export default function EventPage() {
                     </div>
                   </DialogContent>
                 </Dialog>
+
+                {/* Edit Poll Dialog */}
+                <Dialog open={isEditPollDialogOpen} onOpenChange={setIsEditPollDialogOpen}>
+                  <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+                    <DialogHeader>
+                      <DialogTitle>Éditer le sondage</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-poll-title">Titre *</Label>
+                        <Input
+                          id="edit-poll-title"
+                          placeholder="Titre du sondage"
+                          value={editingPoll.title}
+                          onChange={(e) => setEditingPoll({ ...editingPoll, title: e.target.value })}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-poll-desc">Description</Label>
+                        <Input
+                          id="edit-poll-desc"
+                          placeholder="Description (optionnel)"
+                          value={editingPoll.description}
+                          onChange={(e) => setEditingPoll({ ...editingPoll, description: e.target.value })}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Type</Label>
+                        <select
+                          value={editingPoll.type}
+                          onChange={(e) => setEditingPoll({ ...editingPoll, type: e.target.value as 'SINGLE' | 'MULTIPLE' })}
+                          className="w-full px-3 py-2 border rounded-md"
+                        >
+                          <option value="SINGLE">Une seule réponse</option>
+                          <option value="MULTIPLE">Plusieurs réponses</option>
+                        </select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Options</Label>
+                        {editingPoll.options.map((option, idx) => (
+                          <div key={idx} className="flex gap-2">
+                            <Input
+                              placeholder={`Option ${idx + 1}`}
+                              value={option}
+                              onChange={(e) => {
+                                const newOptions = [...editingPoll.options]
+                                newOptions[idx] = e.target.value
+                                setEditingPoll({ ...editingPoll, options: newOptions })
+                              }}
+                            />
+                            {editingPoll.options.length > 2 && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => {
+                                  const newOptions = editingPoll.options.filter((_, i) => i !== idx)
+                                  setEditingPoll({ ...editingPoll, options: newOptions })
+                                }}
+                              >
+                                <X className="h-4 w-4" />
+                              </Button>
+                            )}
+                          </div>
+                        ))}
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setEditingPoll({ ...editingPoll, options: [...editingPoll.options, ''] })}
+                          className="w-full"
+                        >
+                          <Plus className="h-4 w-4 mr-1" />
+                          Ajouter une option
+                        </Button>
+                      </div>
+                      <div className="flex gap-2 justify-end">
+                        <Button variant="outline" onClick={() => setIsEditPollDialogOpen(false)}>Annuler</Button>
+                        <Button onClick={handleSavePoll}>Enregistrer les modifications</Button>
+                      </div>
+                    </div>
+                  </DialogContent>
+                </Dialog>
               </div>
               
               {event.polls.length === 0 ? (
@@ -1622,22 +1789,49 @@ export default function EventPage() {
               ) : (
                 event.polls.map((poll) => {
                   const totalVotes = poll.options.reduce((sum, opt) => sum + opt.voteCount, 0)
+                  
+                  // Calculate non-voters
+                  const allVoters = new Set<string>()
+                  poll.options.forEach((option) => {
+                    option.voters?.forEach((voter) => {
+                      allVoters.add(voter.id)
+                    })
+                  })
+                  
+                  const nonVoters = event.participants.filter((p) => !allVoters.has(p.id))
 
                   return (
                     <Card key={poll.id}>
+                      {poll.imageUrl && (
+                        <div className="relative w-full h-48 overflow-hidden rounded-t-lg">
+                          <Image
+                            src={poll.imageUrl}
+                            alt={poll.title}
+                            className="w-full h-full object-cover"
+                            fill
+                          />
+                        </div>
+                      )}
                       <CardHeader>
                         <div className="flex items-start justify-between">
-                          <div>
+                          <div className="flex-1">
                             <CardTitle className="text-xl">{poll.title}</CardTitle>
                             {poll.description && (
                               <CardDescription>{poll.description}</CardDescription>
                             )}
                           </div>
-                          {poll.isClosed && (
-                            <span className="px-2 py-1 bg-gray-100 text-gray-800 rounded text-sm">
-                              Fermé
-                            </span>
-                          )}
+                          <div className="flex gap-2">
+                            {user?.id === poll.createdById && !poll.isClosed && (
+                              <Button size="sm" variant="outline" onClick={() => handleEditPoll(poll)}>
+                                Éditer
+                              </Button>
+                            )}
+                            {poll.isClosed && (
+                              <span className="px-2 py-1 bg-gray-100 text-gray-800 rounded text-sm">
+                                Fermé
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </CardHeader>
                       <CardContent className="space-y-4">
@@ -1703,6 +1897,15 @@ export default function EventPage() {
                           >
                             {poll.hasVoted ? 'Modifier mon vote' : 'Voter'}
                           </Button>
+                        )}
+
+                        {nonVoters.length > 0 && (
+                          <div className="mt-4 p-3 bg-blue-50 rounded-lg">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-blue-600 font-medium">N&apos;ont pas encore voté:</span>
+                              <VoterAvatars voters={nonVoters} size="sm" maxDisplay={6} />
+                            </div>
+                          </div>
                         )}
 
                         <p className="text-sm text-muted-foreground">
