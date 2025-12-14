@@ -82,10 +82,28 @@ export async function GET(
         },
         polls: {
           include: {
+            createdBy: {
+              select: {
+                id: true,
+                name: true,
+                avatar: true,
+              },
+            },
             options: {
               include: {
                 _count: {
                   select: { votes: true },
+                },
+                votes: {
+                  include: {
+                    user: {
+                      select: {
+                        id: true,
+                        name: true,
+                        avatar: true,
+                      },
+                    },
+                  },
                 },
               },
             },
@@ -167,14 +185,16 @@ export async function GET(
         description?: string | null
         type: 'SINGLE' | 'MULTIPLE'
         isClosed: boolean
-        options: Array<{ id: string; label: string; _count: { votes: number } }>
+        createdBy?: { id: string; name: string; avatar?: string | null } | null
+        options: Array<{ id: string; label: string; _count: { votes: number }; votes: Array<{ user: { id: string; name: string; avatar?: string | null } }> }>
         votes: Array<{ optionId: string }>
       }) => ({
         ...poll,
-        options: poll.options.map((option: { id: string; label: string; _count: { votes: number } }) => ({
+        options: poll.options.map((option: { id: string; label: string; _count: { votes: number }; votes: Array<{ user: { id: string; name: string; avatar?: string | null } }> }) => ({
           id: option.id,
           label: option.label,
           voteCount: option._count.votes,
+          voters: option.votes.map((v: { user: { id: string; name: string; avatar?: string | null } }) => v.user),
         })),
         hasVoted: poll.votes.length > 0,
         userVotes: poll.votes.map((v: { optionId: string }) => v.optionId),

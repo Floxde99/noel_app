@@ -230,7 +230,7 @@ model MenuIngredient {
 
   // Relations
   recipe       MenuRecipe   @relation(fields: [recipeId], references: [id], onDelete: Cascade)
-  contribution Contribution? @relation("IngredientContribution", fields: [contributionId], references: [id], onDelete: SetNull)
+  contribution Contribution? @relation("IngredientContribution", fields: [contributionId], references: [id], onDelete: Cascade)
 
   @@index([recipeId])
 }
