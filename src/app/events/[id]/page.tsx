@@ -161,6 +161,7 @@ export default function EventPage() {
   const [editingPollId, setEditingPollId] = useState<string | null>(null)
   const [editingPoll, setEditingPoll] = useState({ title: '', description: '', type: 'SINGLE', options: ['', ''], imageUrl: '', pollImagePreview: '' })
   const [isEditPollDialogOpen, setIsEditPollDialogOpen] = useState(false)
+    const [selectedPollImageId, setSelectedPollImageId] = useState<string | null>(null)
   const [newMessage, setNewMessage] = useState('')
   const [chatImageUrls, setChatImageUrls] = useState<string[]>([])
   const [chatImagePreviews, setChatImagePreviews] = useState<string[]>([])
@@ -1803,8 +1804,11 @@ export default function EventPage() {
                   return (
                     <Card key={poll.id}>
                       {poll.imageUrl && (
-                        <div className="relative w-full bg-gradient-to-b from-gray-200 to-gray-100 overflow-hidden">
-                          <div className="relative w-full aspect-video">
+                        <div
+                          className="relative w-full bg-gradient-to-b from-gray-200 to-gray-100 overflow-hidden cursor-pointer hover:opacity-90 transition-opacity"
+                          onClick={() => setSelectedPollImageId(poll.id)}
+                        >
+                          <div className="relative w-full aspect-[4/3] max-h-56">
                             <Image
                               src={poll.imageUrl}
                               alt={poll.title}
@@ -1812,6 +1816,9 @@ export default function EventPage() {
                               fill
                               priority
                             />
+                          </div>
+                          <div className="absolute bottom-2 right-2 bg-black/60 text-white text-xs px-2 py-1 rounded">
+                            Cliquer pour agrandir
                           </div>
                         </div>
                       )}
@@ -1919,6 +1926,28 @@ export default function EventPage() {
                   )
                 })
               )}
+
+                {/* Poll Image Modal */}
+                <Dialog open={!!selectedPollImageId} onOpenChange={(open) => !open && setSelectedPollImageId(null)}>
+                  <DialogContent className="max-w-4xl max-h-[90vh] p-0 bg-black border-0">
+                    {event.polls.find(p => p.id === selectedPollImageId)?.imageUrl && (
+                      <div className="relative w-full h-[80vh]">
+                        <Image
+                          src={event.polls.find(p => p.id === selectedPollImageId)?.imageUrl || ''}
+                          alt="Poll image"
+                          className="w-full h-full object-contain"
+                          fill
+                        />
+                        <button
+                          onClick={() => setSelectedPollImageId(null)}
+                          className="absolute top-4 right-4 bg-white/80 hover:bg-white text-black rounded-full p-2 transition-colors"
+                        >
+                          <X className="h-5 w-5" />
+                        </button>
+                      </div>
+                    )}
+                  </DialogContent>
+                </Dialog>
             </div>
           )}
 
