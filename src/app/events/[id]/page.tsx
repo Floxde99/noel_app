@@ -1803,13 +1803,16 @@ export default function EventPage() {
                   return (
                     <Card key={poll.id}>
                       {poll.imageUrl && (
-                        <div className="relative w-full h-48 overflow-hidden rounded-t-lg">
-                          <Image
-                            src={poll.imageUrl}
-                            alt={poll.title}
-                            className="w-full h-full object-cover"
-                            fill
-                          />
+                        <div className="relative w-full bg-gradient-to-b from-gray-200 to-gray-100 overflow-hidden">
+                          <div className="relative w-full aspect-video">
+                            <Image
+                              src={poll.imageUrl}
+                              alt={poll.title}
+                              className="w-full h-full object-cover"
+                              fill
+                              priority
+                            />
+                          </div>
                         </div>
                       )}
                       <CardHeader>

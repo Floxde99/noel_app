@@ -1,4 +1,4 @@
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
 import { Inter } from 'next/font/google'
 import './globals.css'
 import { Toaster } from '@/components/ui/toaster'
@@ -8,6 +8,10 @@ import { FontSizeProvider } from '@/components/providers/font-size-provider'
 import { Snowfall } from '@/components/ui/snowfall'
 
 const inter = Inter({ subsets: ['latin'] })
+
+export const viewport: Viewport = {
+  themeColor: '#0C764C',
+}
 
 export const metadata: Metadata = {
   title: 'Noël en Famille 🎄',
@@ -28,7 +32,6 @@ export const metadata: Metadata = {
     title: 'Noël en Famille 🎄',
   },
   manifest: '/manifest.json',
-  themeColor: '#0C764C',
   openGraph: {
     title: 'Noël en Famille 🎄',
     description: 'Organisez vos fêtes de Noël en famille',
