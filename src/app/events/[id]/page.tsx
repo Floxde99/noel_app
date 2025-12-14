@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
+import Image from 'next/image'
 import { useAuth } from '@/components/providers/auth-provider'
 import { useSocket } from '@/components/providers/socket-provider'
 import { Button } from '@/components/ui/button'
@@ -364,6 +365,8 @@ export default function EventPage() {
       return
     }
 
+    const description = newRecipe.description.trim() || undefined
+
     try {
       const res = await fetch('/api/menu', {
         method: 'POST',
@@ -372,7 +375,7 @@ export default function EventPage() {
         body: JSON.stringify({
           eventId,
           title: newRecipe.title.trim(),
-          description: newRecipe.description.trim() || null,
+          description,
         }),
       })
 
@@ -396,12 +399,14 @@ export default function EventPage() {
       return
     }
 
+    const details = form.details.trim() || undefined
+
     try {
       const res = await fetch(`/api/menu/${recipeId}/ingredients`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ name: form.name.trim(), details: form.details.trim() || null }),
+        body: JSON.stringify({ name: form.name.trim(), details }),
       })
 
       if (res.ok) {
@@ -458,16 +463,19 @@ export default function EventPage() {
       return
     }
 
+    const description = newContribution.description.trim() || undefined
+    const imageUrl = newContribution.imageUrl || undefined
+
     try {
       const response = await fetch('/api/contributions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          title: newContribution.title,
-          description: newContribution.description,
+          title: newContribution.title.trim(),
+          description,
           category: newContribution.category,
-          imageUrl: newContribution.imageUrl,
+          imageUrl,
           eventId,
         }),
       })
@@ -533,14 +541,16 @@ export default function EventPage() {
       return
     }
 
+    const description = editingContrib.description.trim() || undefined
+
     try {
       const response = await fetch(`/api/contributions/${editingContribId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          title: editingContrib.title,
-          description: editingContrib.description,
+          title: editingContrib.title.trim(),
+          description,
           category: editingContrib.category,
         }),
       })
@@ -667,6 +677,9 @@ export default function EventPage() {
       return
     }
 
+    const description = newTask.description.trim() || undefined
+    const dueDate = newTask.dueDate ? new Date(newTask.dueDate).toISOString() : undefined
+
     try {
       const response = await fetch(`/api/tasks`, {
         method: 'POST',
@@ -675,9 +688,9 @@ export default function EventPage() {
         body: JSON.stringify({
           eventId,
           title: newTask.title.trim(),
-          description: newTask.description.trim(),
+          description,
           isPrivate: newTask.isPrivate,
-          dueDate: newTask.dueDate ? new Date(newTask.dueDate).toISOString() : undefined,
+          dueDate,
         }),
       })
 
@@ -711,6 +724,9 @@ export default function EventPage() {
       return
     }
 
+    const description = editingTask.description.trim() || undefined
+    const dueDate = editingTask.dueDate ? new Date(editingTask.dueDate).toISOString() : undefined
+
     try {
       const res = await fetch(`/api/tasks/${editingTaskId}`, {
         method: 'PATCH',
@@ -718,8 +734,8 @@ export default function EventPage() {
         credentials: 'include',
         body: JSON.stringify({
           title: editingTask.title.trim(),
-          description: editingTask.description.trim(),
-          dueDate: editingTask.dueDate ? new Date(editingTask.dueDate).toISOString() : null,
+          description,
+          dueDate,
         }),
       })
 
@@ -759,7 +775,9 @@ export default function EventPage() {
       return
     }
 
-    const validOptions = newPoll.options.filter(o => o.trim())
+    const validOptions = newPoll.options
+      .map((o) => o.trim())
+      .filter(Boolean)
     if (validOptions.length < 2) {
       toast({
         title: 'Options insuffisantes',
@@ -770,6 +788,9 @@ export default function EventPage() {
     }
 
     try {
+      const description = newPoll.description.trim() || undefined
+      const imageUrl = newPoll.imageUrl || undefined
+
       const response = await fetch(`/api/polls`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -777,9 +798,9 @@ export default function EventPage() {
         body: JSON.stringify({
           eventId,
           title: newPoll.title.trim(),
-          description: newPoll.description.trim(),
+          description,
           type: newPoll.type,
-          imageUrl: newPoll.imageUrl,
+          imageUrl,
           options: validOptions,
         }),
       })
@@ -824,7 +845,7 @@ export default function EventPage() {
       })
       return
     }
-    if (!newMessage.trim() && chatImageUrls.length === 0) return
+    if (!newMessage.trim()) return
 
     try {
       await fetch('/api/chat', {
@@ -1053,7 +1074,7 @@ export default function EventPage() {
               <Card className="border-2 border-christmas-green">
                 <CardHeader className="bg-gradient-to-r from-christmas-green to-christmas-red text-white">
                   <CardTitle className="flex items-center justify-between">
-                    <span>🍽️ Menu de l'événement</span>
+                    <span>🍽️ Menu de l&apos;événement</span>
                   </CardTitle>
                   <CardDescription className="text-white/90">
                     Ajoutez des recettes et laissez chacun prendre des ingrédients.
@@ -1105,7 +1126,7 @@ export default function EventPage() {
                         </div>
                         <div>
                           <Button onClick={() => handleAddIngredient(recipe.id)} className="w-full sm:w-auto">
-                            <Plus className="mr-2 h-4 w-4" /> Ajouter l'ingrédient
+                            <Plus className="mr-2 h-4 w-4" /> Ajouter l&apos;ingrédient
                           </Button>
                         </div>
                       </div>
@@ -1114,7 +1135,7 @@ export default function EventPage() {
                         <Label className="font-semibold">Liste des ingrédients</Label>
                         <div className="space-y-2">
                           {recipe.ingredients.length === 0 && (
-                            <div className="text-gray-600">Aucun ingrédient ajouté pour l'instant.</div>
+                            <div className="text-gray-600">Aucun ingrédient ajouté pour l&apos;instant.</div>
                           )}
                           {recipe.ingredients.map((ing) => (
                             <div key={ing.id} className="flex items-center justify-between bg-white/70 border rounded-lg p-3">
@@ -1171,14 +1192,14 @@ export default function EventPage() {
                     Ajouter une contribution
                   </Button>
                 </DialogTrigger>
-                <DialogContent className="sm:max-w-[500px]">
+                <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
                   <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
                       <Plus className="h-5 w-5" />
                       Ajouter une contribution
                     </DialogTitle>
                     <DialogDescription>
-                      Qu'apportez-vous pour la fête ?
+                      Qu&apos;apportez-vous pour la fête ?
                     </DialogDescription>
                   </DialogHeader>
                   <div className="grid sm:grid-cols-2 gap-4">
@@ -1227,10 +1248,11 @@ export default function EventPage() {
                     />
                     {newContribution.contribImagePreview && (
                       <div className="relative w-full h-40 rounded-lg overflow-hidden">
-                        <img
+                        <Image
                           src={newContribution.contribImagePreview}
                           alt="Preview"
                           className="w-full h-full object-cover"
+                          fill
                         />
                         <button
                           onClick={() => setNewContribution({ ...newContribution, imageUrl: '', contribImagePreview: '' })}
@@ -1243,7 +1265,7 @@ export default function EventPage() {
                   </div>
                   <Button onClick={handleAddContribution} size="lg" className="w-full">
                     <Gift className="mr-2 h-5 w-5" />
-                    Je m'engage à apporter
+                    Je m&apos;engage à apporter
                   </Button>
                 </DialogContent>
               </Dialog>
@@ -1287,7 +1309,7 @@ export default function EventPage() {
                         {event.contributions.length === 0 ? (
                           <tr>
                             <td colSpan={6} className="border-2 border-christmas-red/30 px-2 sm:px-4 py-8 text-center text-gray-700 bg-white/50">
-                              Aucune contribution pour l'instant. Soyez le premier ! 🎁
+                              Aucune contribution pour l&apos;instant. Soyez le premier ! 🎁
                             </td>
                           </tr>
                         ) : (
@@ -1354,7 +1376,7 @@ export default function EventPage() {
                                   </td>
                                   <td className="px-2 sm:px-4 py-3 font-semibold flex items-center gap-3">
                                     {contrib.imageUrl && (
-                                      <img src={contrib.imageUrl} alt="Photo" className="w-12 h-12 rounded-md object-cover hidden sm:block" />
+                                      <Image src={contrib.imageUrl} alt="Photo" className="w-12 h-12 rounded-md object-cover hidden sm:block" width={48} height={48} />
                                     )}
                                     <span>{contrib.title}</span>
                                   </td>
@@ -1443,10 +1465,10 @@ export default function EventPage() {
 
           {/* Edit Task Dialog */}
           <Dialog open={isEditTaskDialogOpen} onOpenChange={setIsEditTaskDialogOpen}>
-            <DialogContent className="sm:max-w-md">
+            <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>Éditer la tâche</DialogTitle>
-                <DialogDescription>Modifier le titre, la description et la date d'échéance</DialogDescription>
+                <DialogDescription>Modifier le titre, la description et la date d&apos;échéance</DialogDescription>
               </DialogHeader>
               <div className="space-y-4">
                 <div className="space-y-2">
@@ -1480,7 +1502,7 @@ export default function EventPage() {
                       Nouveau sondage
                     </Button>
                   </DialogTrigger>
-                  <DialogContent className="sm:max-w-md">
+                  <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
                       <DialogTitle>Créer un nouveau sondage</DialogTitle>
                       <DialogDescription>Posez une question et ajoutez des options de réponse</DialogDescription>
@@ -1515,10 +1537,11 @@ export default function EventPage() {
                         />
                         {newPoll.pollImagePreview && (
                           <div className="relative w-full h-40 rounded-lg overflow-hidden">
-                            <img
+                            <Image
                               src={newPoll.pollImagePreview}
                               alt="Preview"
                               className="w-full h-full object-cover"
+                              fill
                             />
                             <button
                               onClick={() => setNewPoll({ ...newPoll, imageUrl: '', pollImagePreview: '' })}
@@ -1696,7 +1719,7 @@ export default function EventPage() {
                       Nouvelle tâche
                     </Button>
                   </DialogTrigger>
-                  <DialogContent className="sm:max-w-md">
+                  <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
                       <DialogTitle>Créer une nouvelle tâche</DialogTitle>
                       <DialogDescription>Ajouter une tâche pour organiser votre événement</DialogDescription>
@@ -1912,7 +1935,7 @@ export default function EventPage() {
                           {msg.media && msg.media.length > 0 && (
                             <div className="flex flex-wrap gap-2 mt-2">
                               {msg.media.map((m) => (
-                                <img key={m.id} src={m.imageUrl} alt="Chat attachment" className="max-w-xs h-auto rounded-lg" />
+                                <Image key={m.id} src={m.imageUrl} alt="Chat attachment" className="max-w-xs h-auto rounded-lg" width={400} height={300} />
                               ))}
                             </div>
                           )}
@@ -1936,7 +1959,7 @@ export default function EventPage() {
                   <div className="flex flex-wrap gap-2 px-4 py-2">
                     {chatImagePreviews.map((preview, idx) => (
                       <div key={idx} className="relative w-20 h-20 rounded-lg overflow-hidden">
-                        <img src={preview} alt="Preview" className="w-full h-full object-cover" />
+                        <Image src={preview} alt="Preview" className="w-full h-full object-cover" fill />
                         <button
                           onClick={() => {
                             setChatImageUrls(chatImageUrls.filter((_, i) => i !== idx))
@@ -1978,7 +2001,7 @@ export default function EventPage() {
                       }
                     }}
                   />
-                  <Button onClick={handleSendMessage} disabled={!newMessage.trim() && chatImageUrls.length === 0}>
+                  <Button onClick={handleSendMessage} disabled={!newMessage.trim()}>
                     <Send className="h-5 w-5" />
                   </Button>
                 </div>
@@ -1995,7 +2018,7 @@ export default function EventPage() {
                 <div>
                   <div className="flex items-start gap-4">
                     {selectedContribForDetail.imageUrl && (
-                      <img src={selectedContribForDetail.imageUrl} alt="Photo" className="w-32 h-32 object-cover rounded-md" />
+                      <Image src={selectedContribForDetail.imageUrl} alt="Photo" className="w-32 h-32 object-cover rounded-md" width={128} height={128} />
                     )}
                     <div>
                       <h2 className="text-2xl font-bold text-gray-900">

@@ -6,8 +6,8 @@ const globalForPrisma = globalThis as unknown as {
 }
 
 function createPrismaClient() {
-  // Parse DATABASE_URL to extract connection params
-  const url = new URL(process.env.DATABASE_URL || 'mysql://noel:noel_password@localhost:3306/noel_db')
+  // Parse DATABASE_URL to extract connection params; prefer IPv4 loopback to avoid socket quirks
+  const url = new URL(process.env.DATABASE_URL || 'mysql://noel:noel_password@127.0.0.1:3306/noel_db')
   
   // Pass connection config directly to adapter
   const adapter = new PrismaMariaDb({
