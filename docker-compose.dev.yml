@@ -1,7 +1,7 @@
 # Development Docker Compose
 # Only starts MariaDB (MySQL-compatible) for local development
 
-version: '3.8'
+version: "3.8"
 
 services:
   db:
@@ -18,7 +18,18 @@ services:
     ports:
       - "3306:3306"
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-P", "3306", "-uroot", "-pnoel_password"]
+      test:
+        [
+          "CMD",
+          "mysqladmin",
+          "ping",
+          "-h",
+          "localhost",
+          "-P",
+          "3306",
+          "-uroot",
+          "-pnoel_password",
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
