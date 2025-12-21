@@ -27,6 +27,9 @@ jobs:
           set -e
           cd ${{ secrets.VPS_PATH }}
 
+          export $(grep -v '^#' .env.production | xargs)
+
+
           git pull --rebase origin main
           npm ci
 
