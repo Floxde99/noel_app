@@ -27,7 +27,7 @@ jobs:
           set -e
           cd ${{ secrets.VPS_PATH }}
 
-          git pull origin main
+          git pull --rebase origin main
           npm ci
 
           npx prisma generate
