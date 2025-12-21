@@ -180,6 +180,7 @@ model Contribution {
   description String?
   category    String?            // plat, boisson, décor, autre
   quantity    Int                @default(1)
+  budget      Decimal?           @db.Decimal(10, 2) // Budget estimé (optionnel)
   status      ContributionStatus @default(PLANNED)
   imageUrl    String?            // WebP image of the contribution
   eventId     String

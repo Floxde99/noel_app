@@ -1,7 +1,7 @@
 "use client"
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useAuth } from '@/components/providers/auth-provider'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -11,12 +11,21 @@ import { useToast } from '@/hooks/use-toast'
 import { TreePine, Gift, Snowflake, Star } from 'lucide-react'
 
 export default function LoginPage() {
+  const searchParams = useSearchParams()
   const [name, setName] = useState('')
   const [eventCode, setEventCode] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const { login } = useAuth()
   const router = useRouter()
   const { toast } = useToast()
+
+  // Pré-remplit le code d'événement depuis l'URL ?code=XXXX
+  useEffect(() => {
+    const code = searchParams?.get('code')
+    if (code) {
+      setEventCode(code.toUpperCase())
+    }
+  }, [searchParams])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()

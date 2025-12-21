@@ -59,6 +59,7 @@ export async function POST(request: NextRequest) {
         description: data.description,
         category: data.category,
         quantity: data.quantity,
+        budget: data.budget,
         imageUrl: data.imageUrl,
         eventId: data.eventId,
         assigneeId: data.assigneeId || payload.userId, // Default to self

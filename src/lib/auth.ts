@@ -99,16 +99,43 @@ export async function saveRefreshToken(userId: string, token: string): Promise<v
 }
 
 export async function revokeRefreshToken(token: string): Promise<void> {
-  await prisma.refreshToken.updateMany({
+  // In this app we rotate refresh tokens. Keeping old tokens forever makes the
+  // table grow quickly (especially in dev). Deleting the token is enough to
+  // mark it invalid.
+  await prisma.refreshToken.deleteMany({
     where: { token },
-    data: { revokedAt: new Date() },
   })
 }
 
 export async function revokeAllUserRefreshTokens(userId: string): Promise<void> {
-  await prisma.refreshToken.updateMany({
-    where: { userId, revokedAt: null },
-    data: { revokedAt: new Date() },
+  await prisma.refreshToken.deleteMany({
+    where: { userId },
+  })
+}
+
+export async function cleanupRefreshTokens(userId?: string): Promise<void> {
+  const now = new Date()
+  await prisma.refreshToken.deleteMany({
+    where: {
+      ...(userId ? { userId } : {}),
+      OR: [{ expiresAt: { lt: now } }, { revokedAt: { not: null } }],
+    },
+  })
+}
+
+export async function pruneUserRefreshTokens(userId: string, maxActiveTokens = 5): Promise<void> {
+  const now = new Date()
+  const active = await prisma.refreshToken.findMany({
+    where: { userId, revokedAt: null, expiresAt: { gt: now } },
+    orderBy: { createdAt: 'desc' },
+    select: { id: true },
+  })
+
+  if (active.length <= maxActiveTokens) return
+
+  const toDelete = active.slice(maxActiveTokens).map((t) => t.id)
+  await prisma.refreshToken.deleteMany({
+    where: { id: { in: toDelete } },
   })
 }
 
@@ -139,4 +166,26 @@ export function parseExpiry(expiry: string): number {
     case 'd': return value * 24 * 60 * 60 * 1000
     default: return 15 * 60 * 1000
   }
+}
+
+// Helper to get auth from request (cookie or bearer token)
+export async function getAuth(request: Request): Promise<TokenPayload | null> {
+  // Try cookie first
+  const cookieStore = await cookies()
+  const accessToken = cookieStore.get('accessToken')?.value
+
+  if (accessToken) {
+    const payload = verifyAccessToken(accessToken)
+    if (payload) return payload
+  }
+
+  // Try Authorization header (Bearer token)
+  const authHeader = request.headers.get('authorization')
+  if (authHeader?.startsWith('Bearer ')) {
+    const token = authHeader.slice(7)
+    const payload = verifyAccessToken(token)
+    if (payload) return payload
+  }
+
+  return null
 }

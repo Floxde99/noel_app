@@ -8,6 +8,8 @@ import {
   isRefreshTokenValid,
   revokeRefreshToken,
   parseExpiry,
+  cleanupRefreshTokens,
+  pruneUserRefreshTokens,
 } from '@/lib/auth'
 
 export async function POST(request: NextRequest) {
@@ -63,7 +65,10 @@ export async function POST(request: NextRequest) {
       return response
     }
 
-    // Revoke old refresh token
+    // Opportunistic cleanup to avoid accumulating expired tokens
+    await cleanupRefreshTokens(user.id)
+
+    // Delete old refresh token (rotation)
     await revokeRefreshToken(refreshToken)
 
     // Generate new tokens
@@ -83,6 +88,7 @@ export async function POST(request: NextRequest) {
 
     // Save new refresh token
     await saveRefreshToken(user.id, newRefreshToken)
+    await pruneUserRefreshTokens(user.id)
 
     // Create response
     const response = NextResponse.json({

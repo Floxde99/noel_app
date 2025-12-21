@@ -76,6 +76,7 @@ export async function PATCH(
         ...(data.description !== undefined && { description: data.description }),
         ...(data.category && { category: data.category }),
         ...(data.quantity && { quantity: data.quantity }),
+        ...(data.budget !== undefined && { budget: data.budget }),
         ...(data.status && { status: data.status }),
         ...(data.assigneeId !== undefined && { assigneeId: data.assigneeId }),
       },

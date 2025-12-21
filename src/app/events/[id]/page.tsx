@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
@@ -14,6 +14,14 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { useToast } from '@/hooks/use-toast'
 import { VoterAvatars } from '@/components/ui/voter-avatars'
 import { formatDate, formatTime, cn } from '@/lib/utils'
+import { 
+  requestNotificationPermission, 
+  areNotificationsEnabled,
+  notifyNewMessage,
+  notifyNewPoll,
+  notifyNewTask,
+  isTabVisible
+} from '@/lib/notifications'
 import { 
   ArrowLeft,
   Calendar, 
@@ -33,6 +41,7 @@ import {
   Sparkles,
   Gift,
   Share2,
+  Download,
   Printer
 } from 'lucide-react'
 
@@ -49,6 +58,7 @@ interface Contribution {
   description?: string
   category?: string
   quantity: number
+  budget?: number | null
   status: 'PLANNED' | 'CONFIRMED' | 'BROUGHT'
   assignee?: User
   imageUrl?: string
@@ -67,6 +77,7 @@ interface Poll {
   description?: string
   type: 'SINGLE' | 'MULTIPLE'
   isClosed: boolean
+  autoClose?: string
   imageUrl?: string
   createdBy?: User
   createdById?: string
@@ -122,6 +133,7 @@ interface Event {
   location?: string
   mapUrl?: string
   status: 'DRAFT' | 'OPEN' | 'CLOSED'
+  bannerImage?: string
   participants: User[]
   contributions: Contribution[]
   menuRecipes: MenuRecipe[]
@@ -129,6 +141,14 @@ interface Event {
   tasks: Task[]
   chatMessages: ChatMessage[]
   eventCodes?: { code: string }[]
+  counts?: {
+    eventUsers: number
+    contributions: number
+    polls: number
+    tasks: number
+    chatMessages: number
+    menuRecipes: number
+  }
 }
 
 export default function EventPage() {
@@ -143,23 +163,25 @@ export default function EventPage() {
   const [event, setEvent] = useState<Event | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<'contributions' | 'menu' | 'polls' | 'tasks' | 'chat'>('contributions')
+
+  const hasEvent = event !== null
   const [isContribDialogOpen, setIsContribDialogOpen] = useState(false)
   const [sortCategory, setSortCategory] = useState<string | null>(null)
   const [editingContribId, setEditingContribId] = useState<string | null>(null)
-  const [editingContrib, setEditingContrib] = useState({ title: '', description: '', category: 'plat' })
+  const [editingContrib, setEditingContrib] = useState({ title: '', description: '', category: 'plat', quantity: 1, budget: '' })
   const [selectedContribForDetail, setSelectedContribForDetail] = useState<Contribution | null>(null)
   
   // Form states
-  const [newContribution, setNewContribution] = useState({ title: '', description: '', category: 'plat', imageUrl: '', contribImagePreview: '' })
+  const [newContribution, setNewContribution] = useState({ title: '', description: '', category: 'plat', quantity: 1, budget: '', imageUrl: '', contribImagePreview: '' })
   const [newTask, setNewTask] = useState({ title: '', description: '', isPrivate: false, dueDate: '' })
   const [isTaskDialogOpen, setIsTaskDialogOpen] = useState(false)
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null)
   const [editingTask, setEditingTask] = useState({ title: '', description: '', dueDate: '' })
   const [isEditTaskDialogOpen, setIsEditTaskDialogOpen] = useState(false)
-  const [newPoll, setNewPoll] = useState({ title: '', description: '', type: 'SINGLE', options: ['', ''], imageUrl: '', pollImagePreview: '' })
+  const [newPoll, setNewPoll] = useState({ title: '', description: '', type: 'SINGLE', options: ['', ''], imageUrl: '', pollImagePreview: '', autoClose: '' })
   const [isPollDialogOpen, setIsPollDialogOpen] = useState(false)
   const [editingPollId, setEditingPollId] = useState<string | null>(null)
-  const [editingPoll, setEditingPoll] = useState({ title: '', description: '', type: 'SINGLE', options: ['', ''], imageUrl: '', pollImagePreview: '' })
+  const [editingPoll, setEditingPoll] = useState({ title: '', description: '', type: 'SINGLE', options: ['', ''], imageUrl: '', pollImagePreview: '', autoClose: '' })
   const [isEditPollDialogOpen, setIsEditPollDialogOpen] = useState(false)
     const [selectedPollImageId, setSelectedPollImageId] = useState<string | null>(null)
   const [newMessage, setNewMessage] = useState('')
@@ -169,27 +191,169 @@ export default function EventPage() {
   const [newRecipe, setNewRecipe] = useState({ title: '', description: '' })
   const [newIngredient, setNewIngredient] = useState<Record<string, { name: string; details: string }>>({})
   const [claimingIngredientId, setClaimingIngredientId] = useState<string | null>(null)
-  // Fetch event data
-  const fetchEvent = useCallback(async () => {
+  const [notificationsEnabled, setNotificationsEnabled] = useState(false)
+  const [lastMessageCount, setLastMessageCount] = useState(0)
+  const [lastPollCount, setLastPollCount] = useState(0)
+  const [lastTaskCount, setLastTaskCount] = useState(0)
+
+  const loadedTabsRef = useRef<Record<'contributions' | 'menu' | 'polls' | 'tasks' | 'chat', boolean>>({
+    contributions: false,
+    menu: false,
+    polls: false,
+    tasks: false,
+    chat: false,
+  })
+
+  const [loadingTabs, setLoadingTabs] = useState<Record<'contributions' | 'menu' | 'polls' | 'tasks' | 'chat', boolean>>({
+    contributions: false,
+    menu: false,
+    polls: false,
+    tasks: false,
+    chat: false,
+  })
+
+  const countsRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  
+  // Request notification permission on mount
+  useEffect(() => {
+    const checkNotifications = async () => {
+      if ('Notification' in window && Notification.permission === 'default') {
+        const permission = await requestNotificationPermission()
+        setNotificationsEnabled(permission === 'granted')
+      } else {
+        setNotificationsEnabled(areNotificationsEnabled())
+      }
+    }
+    checkNotifications()
+  }, [])
+  // Fetch event data - optimized to load minimal data first, then specific sections
+  const fetchEventMinimal = useCallback(async () => {
     try {
       if (!eventId) return
-      const response = await fetch(`/api/events/${eventId}`, {
+      
+      // Load minimal event info + participants (both needed at page load)
+      const [minimalRes, participantsRes] = await Promise.all([
+        fetch(`/api/events/${eventId}/minimal`, { credentials: 'include' }),
+        fetch(`/api/events/${eventId}/participants`, { credentials: 'include' }),
+      ])
+
+      if (!minimalRes.ok) {
+        if (minimalRes.status === 401 || minimalRes.status === 403) {
+          router.push('/dashboard')
+        }
+        return null
+      }
+
+      const minimalData = await minimalRes.json()
+      const participantsData = participantsRes.ok ? await participantsRes.json() : { participants: [] }
+
+      return {
+        ...minimalData.event,
+        participants: participantsData.participants || [],
+      }
+    } catch (error) {
+      console.error('Failed to fetch minimal event:', error)
+      return null
+    }
+  }, [eventId, router])
+
+  const refreshCounts = useCallback(async () => {
+    if (!eventId) return
+    try {
+      const res = await fetch(`/api/events/${eventId}/minimal`, { credentials: 'include' })
+      if (!res.ok) return
+      const data = await res.json()
+      const nextCounts = data?.event?.counts
+      if (!nextCounts) return
+
+      setEvent((prev) => {
+        if (!prev) return prev
+        return {
+          ...prev,
+          // keep existing loaded arrays; just update metadata + counts
+          name: data.event.name ?? prev.name,
+          description: data.event.description ?? prev.description,
+          date: data.event.date ?? prev.date,
+          endDate: data.event.endDate ?? prev.endDate,
+          location: data.event.location ?? prev.location,
+          mapUrl: data.event.mapUrl ?? prev.mapUrl,
+          status: data.event.status ?? prev.status,
+          bannerImage: data.event.bannerImage ?? prev.bannerImage,
+          counts: nextCounts,
+        }
+      })
+    } catch {
+      // ignore
+    }
+  }, [eventId])
+
+  const scheduleCountsRefresh = useCallback(() => {
+    if (countsRefreshTimerRef.current) {
+      clearTimeout(countsRefreshTimerRef.current)
+    }
+    countsRefreshTimerRef.current = setTimeout(() => {
+      refreshCounts()
+    }, 300)
+  }, [refreshCounts])
+
+  // Fetch specific section based on active tab
+  const fetchEventSection = useCallback(async (section: 'contributions' | 'menu' | 'polls' | 'tasks' | 'chat') => {
+    try {
+      if (!eventId) return null
+      
+      const endpoints: Record<string, string> = {
+        'contributions': `/api/events/${eventId}/contributions`,
+        'menu': `/api/events/${eventId}/menu`,
+        'polls': `/api/events/${eventId}/polls`,
+        'tasks': `/api/events/${eventId}/tasks`,
+        'chat': `/api/events/${eventId}/messages?limit=50`,
+      }
+
+      const response = await fetch(endpoints[section], {
         credentials: 'include',
       })
 
       if (response.ok) {
         const data = await response.json()
-        setEvent(data.event)
-        
-        // Initialize selected votes
-        const votes: Record<string, string[]> = {}
-        data.event.polls.forEach((poll: Poll) => {
-          votes[poll.id] = poll.userVotes || []
-        })
-        setSelectedVotes(votes)
-      } else if (response.status === 401 || response.status === 403) {
-        router.push('/dashboard')
+        return data
       }
+      return null
+    } catch (error) {
+      console.error(`Failed to fetch ${section}:`, error)
+      return null
+    }
+  }, [eventId])
+
+  // Initial fetch - load minimal data
+  const fetchEvent = useCallback(async () => {
+    try {
+      if (!eventId) return
+      
+      // Load minimal event data first (fast)
+      const minimalEvent = await fetchEventMinimal()
+      if (!minimalEvent) return
+
+      // Create base event object with minimal data
+      const newEvent = {
+        ...minimalEvent,
+        participants: minimalEvent.participants || [],
+        contributions: [],
+        menuRecipes: [],
+        polls: [],
+        tasks: [],
+        chatMessages: [],
+      }
+
+      loadedTabsRef.current = {
+        contributions: false,
+        menu: false,
+        polls: false,
+        tasks: false,
+        chat: false,
+      }
+
+      setEvent(newEvent)
+      setIsLoading(false)
     } catch (error) {
       console.error('Failed to fetch event:', error)
       toast({
@@ -197,10 +361,73 @@ export default function EventPage() {
         description: 'Impossible de charger l\'événement',
         variant: 'destructive',
       })
-    } finally {
       setIsLoading(false)
     }
-  }, [eventId, router, toast])
+  }, [eventId, toast, fetchEventMinimal])
+
+  // Fetch section data when tab changes
+  const loadTabData = useCallback(
+    async (tab: 'contributions' | 'menu' | 'polls' | 'tasks' | 'chat', opts?: { force?: boolean }) => {
+    if (!eventId) return
+
+    // Avoid refetching the same tab repeatedly
+    if (!opts?.force && loadedTabsRef.current[tab]) return
+
+    setLoadingTabs(prev => ({ ...prev, [tab]: true }))
+
+    const sectionData = await fetchEventSection(tab)
+    if (!sectionData) {
+      setLoadingTabs(prev => ({ ...prev, [tab]: false }))
+      return
+    }
+
+    loadedTabsRef.current[tab] = true
+
+    setEvent((prev) => {
+      if (!prev) return prev
+      const next = { ...prev }
+
+      if (tab === 'contributions') {
+        next.contributions = sectionData.contributions
+      } else if (tab === 'menu') {
+        next.menuRecipes = sectionData.menuRecipes
+      } else if (tab === 'polls') {
+        next.polls = sectionData.polls
+      } else if (tab === 'tasks') {
+        next.tasks = sectionData.tasks
+      } else if (tab === 'chat') {
+        next.chatMessages = sectionData.messages
+      }
+
+      return next
+    })
+
+    if (tab === 'polls') {
+      const votes: Record<string, string[]> = {}
+      sectionData.polls.forEach((poll: Poll) => {
+        votes[poll.id] = poll.userVotes || []
+      })
+      setSelectedVotes(votes)
+    }
+
+    if (tab === 'chat') {
+      setLastMessageCount(sectionData.messages.length)
+    }
+
+    setLoadingTabs(prev => ({ ...prev, [tab]: false }))
+  },
+    [eventId, fetchEventSection]
+  )
+
+  const invalidateTab = useCallback((tab: 'contributions' | 'menu' | 'polls' | 'tasks' | 'chat') => {
+    loadedTabsRef.current[tab] = false
+  }, [])
+
+  const refreshActiveTab = useCallback(async (tab: 'contributions' | 'menu' | 'polls' | 'tasks' | 'chat') => {
+    invalidateTab(tab)
+    await loadTabData(tab, { force: true })
+    scheduleCountsRefresh()
+  }, [invalidateTab, loadTabData, scheduleCountsRefresh])
 
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {
@@ -219,20 +446,63 @@ export default function EventPage() {
     }
   }, [isAuthenticated, eventId, fetchEvent, joinEvent, leaveEvent])
 
+  // Load data when tab changes
+  useEffect(() => {
+    if (!eventId) return
+    if (!hasEvent) return
+    loadTabData(activeTab)
+  }, [activeTab, eventId, hasEvent, loadTabData])
+
   useEffect(() => {
     if (!eventId && !authLoading) {
       router.push('/dashboard')
     }
   }, [eventId, authLoading, router])
 
-  // Socket listeners for real-time updates
+  // Socket listeners for real-time updates - optimized to reload only relevant section
   useEffect(() => {
     if (!socket) return
 
-    socket.on('contribution-update', fetchEvent)
-    socket.on('poll-update', fetchEvent)
-    socket.on('task-update', fetchEvent)
-    socket.on('new-message', fetchEvent)
+    const handleContributionUpdate = async () => {
+      if (activeTab === 'contributions') {
+        await refreshActiveTab('contributions')
+      } else {
+        invalidateTab('contributions')
+        scheduleCountsRefresh()
+      }
+    }
+
+    const handlePollUpdate = async () => {
+      if (activeTab === 'polls') {
+        await refreshActiveTab('polls')
+      } else {
+        invalidateTab('polls')
+        scheduleCountsRefresh()
+      }
+    }
+
+    const handleTaskUpdate = async () => {
+      if (activeTab === 'tasks') {
+        await refreshActiveTab('tasks')
+      } else {
+        invalidateTab('tasks')
+        scheduleCountsRefresh()
+      }
+    }
+
+    const handleNewMessage = async () => {
+      if (activeTab === 'chat') {
+        await refreshActiveTab('chat')
+      } else {
+        invalidateTab('chat')
+        scheduleCountsRefresh()
+      }
+    }
+
+    socket.on('contribution-update', handleContributionUpdate)
+    socket.on('poll-update', handlePollUpdate)
+    socket.on('task-update', handleTaskUpdate)
+    socket.on('new-message', handleNewMessage)
 
     return () => {
       socket.off('contribution-update')
@@ -240,7 +510,7 @@ export default function EventPage() {
       socket.off('task-update')
       socket.off('new-message')
     }
-  }, [socket, fetchEvent])
+  }, [socket, activeTab, invalidateTab, refreshActiveTab, scheduleCountsRefresh])
 
   // Image upload handlers
   const uploadImage = async (file: File, type: 'contribution' | 'poll' | 'chat'): Promise<string> => {
@@ -391,7 +661,12 @@ export default function EventPage() {
       if (res.ok) {
         toast({ title: 'Recette ajoutée', variant: 'success' })
         setNewRecipe({ title: '', description: '' })
-        fetchEvent()
+        if (activeTab === 'menu') {
+          void refreshActiveTab('menu')
+        } else {
+          invalidateTab('menu')
+          scheduleCountsRefresh()
+        }
       } else {
         const data = await res.json().catch(() => null)
         toast({ title: 'Erreur', description: data?.error || 'Impossible d’ajouter la recette', variant: 'destructive' })
@@ -421,7 +696,12 @@ export default function EventPage() {
       if (res.ok) {
         toast({ title: 'Ingrédient ajouté', variant: 'success' })
         setNewIngredient((prev) => ({ ...prev, [recipeId]: { name: '', details: '' } }))
-        fetchEvent()
+        if (activeTab === 'menu') {
+          void refreshActiveTab('menu')
+        } else {
+          invalidateTab('menu')
+          scheduleCountsRefresh()
+        }
       } else {
         const data = await res.json().catch(() => null)
         toast({ title: 'Erreur', description: data?.error || 'Ajout impossible', variant: 'destructive' })
@@ -441,7 +721,14 @@ export default function EventPage() {
 
       if (res.ok) {
         toast({ title: 'Pris en charge', description: 'Merci !', variant: 'success' })
-        fetchEvent()
+        // affects menu immediately; contributions may also be impacted depending on backend logic
+        invalidateTab('contributions')
+        if (activeTab === 'menu') {
+          void refreshActiveTab('menu')
+        } else {
+          invalidateTab('menu')
+          scheduleCountsRefresh()
+        }
       } else {
         const data = await res.json().catch(() => null)
         toast({ title: 'Erreur', description: data?.error || 'Impossible de réserver', variant: 'destructive' })
@@ -484,6 +771,8 @@ export default function EventPage() {
           title: newContribution.title.trim(),
           description,
           category: newContribution.category,
+          quantity: newContribution.quantity || 1,
+          budget: newContribution.budget ? parseFloat(newContribution.budget) : undefined,
           imageUrl,
           eventId,
         }),
@@ -495,9 +784,60 @@ export default function EventPage() {
           description: 'Merci pour votre participation',
           variant: 'success',
         })
-        setNewContribution({ title: '', description: '', category: 'plat', imageUrl: '', contribImagePreview: '' })
+        setNewContribution({ title: '', description: '', category: 'plat', quantity: 1, budget: '', imageUrl: '', contribImagePreview: '' })
         setIsContribDialogOpen(false)
-        fetchEvent()
+        if (activeTab === 'contributions') {
+          void refreshActiveTab('contributions')
+        } else {
+          invalidateTab('contributions')
+          scheduleCountsRefresh()
+        }
+      } else {
+        const data = await response.json().catch(() => ({}))
+        toast({
+          title: 'Erreur',
+          description: data?.error || 'Impossible d\'ajouter la contribution',
+          variant: 'destructive',
+        })
+      }
+    } catch (error) {
+      toast({
+        title: 'Erreur',
+        description: 'Erreur réseau',
+        variant: 'destructive',
+      })
+    }
+  }
+
+  const handleDuplicateContribution = async (contrib: Contribution) => {
+    if (!eventId) return
+    if (!confirm(`Dupliquer "${contrib.title}" ?`)) return
+
+    try {
+      const response = await fetch('/api/contributions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          title: contrib.title,
+          description: contrib.description,
+          category: contrib.category,
+          imageUrl: contrib.imageUrl,
+          eventId,
+        }),
+      })
+
+      if (response.ok) {
+        toast({
+          title: 'Contribution dupliquée ! 📋',
+          variant: 'success',
+        })
+        if (activeTab === 'contributions') {
+          void refreshActiveTab('contributions')
+        } else {
+          invalidateTab('contributions')
+          scheduleCountsRefresh()
+        }
       }
     } catch (error) {
       toast({
@@ -516,7 +856,12 @@ export default function EventPage() {
         credentials: 'include',
         body: JSON.stringify({ status }),
       })
-      fetchEvent()
+      if (activeTab === 'contributions') {
+        void refreshActiveTab('contributions')
+      } else {
+        invalidateTab('contributions')
+        scheduleCountsRefresh()
+      }
       toast({
         title: 'Statut mis à jour',
         variant: 'success',
@@ -535,7 +880,9 @@ export default function EventPage() {
     setEditingContrib({ 
       title: contrib.title, 
       description: contrib.description || '', 
-      category: contrib.category || 'plat' 
+      category: contrib.category || 'plat',
+      quantity: contrib.quantity || 1,
+      budget: contrib.budget?.toString() || '',
     })
   }
 
@@ -561,6 +908,8 @@ export default function EventPage() {
           title: editingContrib.title.trim(),
           description,
           category: editingContrib.category,
+          quantity: editingContrib.quantity || 1,
+          budget: editingContrib.budget ? parseFloat(editingContrib.budget) : null,
         }),
       })
 
@@ -571,7 +920,12 @@ export default function EventPage() {
           variant: 'success',
         })
         setEditingContribId(null)
-        fetchEvent()
+        if (activeTab === 'contributions') {
+          void refreshActiveTab('contributions')
+        } else {
+          invalidateTab('contributions')
+          scheduleCountsRefresh()
+        }
       }
     } catch (error) {
       toast({
@@ -600,7 +954,12 @@ export default function EventPage() {
         credentials: 'include',
         body: JSON.stringify({ optionIds }),
       })
-      fetchEvent()
+      if (activeTab === 'polls') {
+        void refreshActiveTab('polls')
+      } else {
+        invalidateTab('polls')
+        scheduleCountsRefresh()
+      }
       toast({
         title: 'Vote enregistré ! 🗳️',
         variant: 'success',
@@ -625,7 +984,12 @@ export default function EventPage() {
       })
       if (res.ok) {
         toast({ title: 'Statut mis à jour', variant: 'success' })
-        fetchEvent()
+        if (activeTab === 'tasks') {
+          void refreshActiveTab('tasks')
+        } else {
+          invalidateTab('tasks')
+          scheduleCountsRefresh()
+        }
       } else {
         let errMsg = 'Impossible de mettre à jour la tâche'
         try { const data = await res.json(); if (data?.error) errMsg = data.error } catch(e) {}
@@ -650,7 +1014,12 @@ export default function EventPage() {
 
       if (res.ok) {
         toast({ title: 'Tâche supprimée', variant: 'success' })
-        fetchEvent()
+        if (activeTab === 'tasks') {
+          void refreshActiveTab('tasks')
+        } else {
+          invalidateTab('tasks')
+          scheduleCountsRefresh()
+        }
         return
       }
 
@@ -710,7 +1079,12 @@ export default function EventPage() {
         })
         setNewTask({ title: '', description: '', isPrivate: false, dueDate: '' })
         setIsTaskDialogOpen(false)
-        fetchEvent()
+        if (activeTab === 'tasks') {
+          void refreshActiveTab('tasks')
+        } else {
+          invalidateTab('tasks')
+          scheduleCountsRefresh()
+        }
       } else {
         toast({
           title: 'Erreur',
@@ -753,7 +1127,12 @@ export default function EventPage() {
         setIsEditTaskDialogOpen(false)
         setEditingTaskId(null)
         setEditingTask({ title: '', description: '', dueDate: '' })
-        fetchEvent()
+        if (activeTab === 'tasks') {
+          void refreshActiveTab('tasks')
+        } else {
+          invalidateTab('tasks')
+          scheduleCountsRefresh()
+        }
       } else {
         let errMsg = 'Impossible de modifier la tâche'
         try { const data = await res.json(); if (data?.error) errMsg = data.error } catch(e) {}
@@ -799,6 +1178,7 @@ export default function EventPage() {
     try {
       const description = newPoll.description.trim() || undefined
       const imageUrl = newPoll.imageUrl || undefined
+      const autoClose = newPoll.autoClose ? new Date(newPoll.autoClose).toISOString() : undefined
 
       const response = await fetch(`/api/polls`, {
         method: 'POST',
@@ -810,6 +1190,7 @@ export default function EventPage() {
           description,
           type: newPoll.type,
           imageUrl,
+          autoClose,
           options: validOptions,
         }),
       })
@@ -819,9 +1200,14 @@ export default function EventPage() {
           title: 'Succès',
           description: 'Sondage créé avec succès',
         })
-        setNewPoll({ title: '', description: '', type: 'SINGLE', options: ['', ''], imageUrl: '', pollImagePreview: '' })
+        setNewPoll({ title: '', description: '', type: 'SINGLE', options: ['', ''], imageUrl: '', pollImagePreview: '', autoClose: '' })
         setIsPollDialogOpen(false)
-        fetchEvent()
+        if (activeTab === 'polls') {
+          void refreshActiveTab('polls')
+        } else {
+          invalidateTab('polls')
+          scheduleCountsRefresh()
+        }
       } else {
         let errMsg = 'Impossible de créer le sondage'
         try {
@@ -854,6 +1240,7 @@ export default function EventPage() {
       options: poll.options.map((o) => o.label),
       imageUrl: poll.imageUrl || '',
       pollImagePreview: poll.imageUrl || '',
+      autoClose: poll.autoClose || '',
     })
     setIsEditPollDialogOpen(true)
   }
@@ -901,7 +1288,12 @@ export default function EventPage() {
         })
         setEditingPollId(null)
         setIsEditPollDialogOpen(false)
-        fetchEvent()
+        if (activeTab === 'polls') {
+          void refreshActiveTab('polls')
+        } else {
+          invalidateTab('polls')
+          scheduleCountsRefresh()
+        }
       } else {
         let errMsg = 'Impossible de modifier le sondage'
         try {
@@ -950,7 +1342,12 @@ export default function EventPage() {
       setNewMessage('')
       setChatImageUrls([])
       setChatImagePreviews([])
-      fetchEvent()
+      if (activeTab === 'chat') {
+        void refreshActiveTab('chat')
+      } else {
+        invalidateTab('chat')
+        scheduleCountsRefresh()
+      }
     } catch (error) {
       toast({
         title: 'Erreur',
@@ -974,10 +1371,17 @@ export default function EventPage() {
 
   if (authLoading || isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center space-y-4">
-          <Loader2 className="h-12 w-12 animate-spin text-christmas-red mx-auto" />
-          <p className="text-xl">Chargement...</p>
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-green-900 via-red-900 to-green-900">
+        <div className="text-center">
+          <div className="text-6xl animate-bounce mb-4">🎄</div>
+          <div className="text-white text-xl font-semibold">Chargement...</div>
+          <div className="mt-4 flex justify-center gap-1">
+            <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse" style={{ animationDelay: '0ms' }}></div>
+            <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse" style={{ animationDelay: '150ms' }}></div>
+            <div className="w-3 h-3 bg-yellow-500 rounded-full animate-pulse" style={{ animationDelay: '300ms' }}></div>
+            <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse" style={{ animationDelay: '450ms' }}></div>
+            <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse" style={{ animationDelay: '600ms' }}></div>
+          </div>
         </div>
       </div>
     )
@@ -1134,11 +1538,11 @@ export default function EventPage() {
         {/* Tabs */}
         <div className="flex flex-wrap gap-2 mb-6 no-print">
           {[
-            { id: 'contributions', label: 'Contributions', icon: ChefHat, count: event.contributions.length },
-            { id: 'menu', label: 'Menu', icon: Sparkles, count: event.menuRecipes?.length || 0 },
-            { id: 'polls', label: 'Sondages', icon: BarChart3, count: event.polls.length },
-            { id: 'tasks', label: 'Tâches', icon: ClipboardList, count: event.tasks.length },
-            { id: 'chat', label: 'Discussion', icon: MessageCircle, count: event.chatMessages.length },
+            { id: 'contributions', label: 'Contributions', icon: ChefHat, count: event.counts?.contributions ?? event.contributions.length },
+            { id: 'menu', label: 'Menu', icon: Sparkles, count: event.counts?.menuRecipes ?? (event.menuRecipes?.length || 0) },
+            { id: 'polls', label: 'Sondages', icon: BarChart3, count: event.counts?.polls ?? event.polls.length },
+            { id: 'tasks', label: 'Tâches', icon: ClipboardList, count: event.counts?.tasks ?? event.tasks.length },
+            { id: 'chat', label: 'Discussion', icon: MessageCircle, count: event.counts?.chatMessages ?? event.chatMessages.length },
           ].map((tab) => (
             <Button
               key={tab.id}
@@ -1186,7 +1590,14 @@ export default function EventPage() {
                 </CardContent>
               </Card>
 
-              {event.menuRecipes?.length ? (
+              {loadingTabs.menu ? (
+                <Card className="border-2 border-christmas-green/60 py-12">
+                  <div className="flex flex-col items-center gap-3">
+                    <Loader2 className="h-8 w-8 animate-spin text-christmas-green" />
+                    <p className="text-sm text-gray-600">Chargement du menu...</p>
+                  </div>
+                </Card>
+              ) : event.menuRecipes?.length ? (
                 event.menuRecipes.map((recipe) => (
                   <Card key={recipe.id} className="border-2 border-christmas-green/60">
                     <CardHeader>
@@ -1234,7 +1645,10 @@ export default function EventPage() {
                                   {ing.details ? <span className="text-gray-600"> — {ing.details}</span> : null}
                                 </div>
                                 {ing.contribution?.assignee ? (
-                                  <div className="text-sm text-green-700">Pris en charge par {ing.contribution.assignee.name}</div>
+                                  <div className="text-sm text-green-700 flex items-center gap-1">
+                                    ✓ Pris en charge par {ing.contribution.assignee.name}
+                                    <span className="text-xs text-gray-500 italic">(contribution créée)</span>
+                                  </div>
                                 ) : (
                                   <div className="text-sm text-gray-500">Disponible</div>
                                 )}
@@ -1246,6 +1660,7 @@ export default function EventPage() {
                                     onClick={() => handleClaimIngredient(ing.id)}
                                     disabled={claimingIngredientId === ing.id}
                                     className="no-print"
+                                    title="Créer une contribution et me l'assigner"
                                   >
                                     {claimingIngredientId === ing.id ? (
                                       <Loader2 className="h-4 w-4 animate-spin mr-1" />
@@ -1274,14 +1689,15 @@ export default function EventPage() {
           {activeTab === 'contributions' && (
             <div className="space-y-6">
               {/* Add contribution form */}
-              <Dialog open={isContribDialogOpen} onOpenChange={setIsContribDialogOpen}>
-                <DialogTrigger asChild>
-                  <Button size="lg" className="w-full sm:w-auto no-print">
-                    <Plus className="mr-2 h-5 w-5" />
-                    Ajouter une contribution
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
+              <div className="flex flex-wrap gap-2">
+                <Dialog open={isContribDialogOpen} onOpenChange={setIsContribDialogOpen}>
+                  <DialogTrigger asChild>
+                    <Button size="lg" className="no-print">
+                      <Plus className="mr-2 h-5 w-5" />
+                      Ajouter une contribution
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
                   <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
                       <Plus className="h-5 w-5" />
@@ -1326,6 +1742,31 @@ export default function EventPage() {
                       onChange={(e) => setNewContribution({ ...newContribution, description: e.target.value })}
                     />
                   </div>
+                  <div className="grid sm:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="contrib-quantity">Quantité</Label>
+                      <Input
+                        id="contrib-quantity"
+                        type="number"
+                        min="1"
+                        placeholder="1"
+                        value={newContribution.quantity}
+                        onChange={(e) => setNewContribution({ ...newContribution, quantity: parseInt(e.target.value) || 1 })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="contrib-budget">Budget (€, optionnel)</Label>
+                      <Input
+                        id="contrib-budget"
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        placeholder="0.00"
+                        value={newContribution.budget}
+                        onChange={(e) => setNewContribution({ ...newContribution, budget: e.target.value })}
+                      />
+                    </div>
+                  </div>
                   <div className="space-y-2">
                     <Label htmlFor="contrib-image">📸 Photo (optionnel)</Label>
                     <input
@@ -1358,6 +1799,20 @@ export default function EventPage() {
                   </Button>
                 </DialogContent>
               </Dialog>
+              {event.contributions.length > 0 && (
+                <Button
+                  variant="outline"
+                  size="lg"
+                  className="no-print"
+                  onClick={() => {
+                    if (!eventId) return
+                    window.open(`/api/events/${eventId}/contributions/export`, '_blank')
+                  }}
+                >
+                  📥 Exporter CSV
+                </Button>
+              )}
+              </div>
 
               {/* Contributions list */}
               {/* Contributions table overview */}
@@ -1395,7 +1850,16 @@ export default function EventPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {event.contributions.length === 0 ? (
+                        {loadingTabs.contributions ? (
+                          <tr>
+                            <td colSpan={6} className="border-2 border-christmas-red/30 px-2 sm:px-4 py-12 text-center text-gray-700 bg-white/50">
+                              <div className="flex flex-col items-center gap-3">
+                                <Loader2 className="h-8 w-8 animate-spin text-christmas-green" />
+                                <p className="text-sm">Chargement des contributions...</p>
+                              </div>
+                            </td>
+                          </tr>
+                        ) : event.contributions.length === 0 ? (
                           <tr>
                             <td colSpan={6} className="border-2 border-christmas-red/30 px-2 sm:px-4 py-8 text-center text-gray-700 bg-white/50">
                               Aucune contribution pour l&apos;instant. Soyez le premier ! 🎁
@@ -1442,6 +1906,31 @@ export default function EventPage() {
                                           onChange={(e) => setEditingContrib({ ...editingContrib, description: e.target.value })}
                                           className="text-sm"
                                         />
+                                      </div>
+                                      <div className="grid sm:grid-cols-2 gap-3">
+                                        <div className="space-y-1">
+                                          <Label className="text-xs">Quantité</Label>
+                                          <Input
+                                            type="number"
+                                            min="1"
+                                            placeholder="1"
+                                            value={editingContrib.quantity}
+                                            onChange={(e) => setEditingContrib({ ...editingContrib, quantity: parseInt(e.target.value) || 1 })}
+                                            className="text-sm"
+                                          />
+                                        </div>
+                                        <div className="space-y-1">
+                                          <Label className="text-xs">Budget (€)</Label>
+                                          <Input
+                                            type="number"
+                                            step="0.01"
+                                            min="0"
+                                            placeholder="0.00"
+                                            value={editingContrib.budget}
+                                            onChange={(e) => setEditingContrib({ ...editingContrib, budget: e.target.value })}
+                                            className="text-sm"
+                                          />
+                                        </div>
                                       </div>
                                       <div className="flex gap-2 justify-end">
                                         <Button size="sm" variant="outline" onClick={() => setEditingContribId(null)}>Annuler</Button>
@@ -1508,6 +1997,14 @@ export default function EventPage() {
                                           <Check className="h-4 w-4" />
                                         </Button>
                                       )}
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => handleDuplicateContribution(contrib)}
+                                        title="Dupliquer"
+                                      >
+                                        <Copy className="h-4 w-4" />
+                                      </Button>
                                     </div>
                                   </td>
                                 </tr>
@@ -1652,6 +2149,17 @@ export default function EventPage() {
                           <option value="SINGLE">Choix unique</option>
                           <option value="MULTIPLE">Choix multiples</option>
                         </select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="poll-autoclose">Fermeture automatique (optionnel)</Label>
+                        <input
+                          id="poll-autoclose"
+                          type="datetime-local"
+                          className="w-full h-10 px-3 rounded-lg border-2"
+                          value={newPoll.autoClose}
+                          onChange={(e) => setNewPoll({ ...newPoll, autoClose: e.target.value })}
+                        />
+                        <p className="text-xs text-gray-500">Le sondage se fermera automatiquement à cette date/heure</p>
                       </div>
                       <div className="space-y-2">
                         <Label>Options de réponse *</Label>
@@ -1828,6 +2336,11 @@ export default function EventPage() {
                             <CardTitle className="text-xl">{poll.title}</CardTitle>
                             {poll.description && (
                               <CardDescription>{poll.description}</CardDescription>
+                            )}
+                            {poll.autoClose && !poll.isClosed && (
+                              <p className="text-xs text-orange-600 mt-1 flex items-center gap-1">
+                                ⏰ Se ferme automatiquement le {formatDate(poll.autoClose)} à {formatTime(poll.autoClose)}
+                              </p>
                             )}
                           </div>
                           <div className="flex gap-2">
@@ -2042,7 +2555,12 @@ export default function EventPage() {
                       </CardTitle>
                     </CardHeader>
                     <CardContent>
-                      {statusTasks.length === 0 ? (
+                      {loadingTabs.tasks ? (
+                        <div className="flex flex-col items-center gap-3 py-8">
+                          <Loader2 className="h-8 w-8 animate-spin text-christmas-green" />
+                          <p className="text-sm text-gray-600">Chargement...</p>
+                        </div>
+                      ) : statusTasks.length === 0 ? (
                         <p className="text-muted-foreground text-center py-4">
                           Aucune tâche
                         </p>
@@ -2115,6 +2633,18 @@ export default function EventPage() {
                                   </Button>
                                 )}
 
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => {
+                                    window.open(`/api/tasks/${task.id}/ical`, '_blank')
+                                  }}
+                                  className="no-print"
+                                  title="Exporter vers calendrier (iCal)"
+                                >
+                                  <Download className="h-4 w-4" />
+                                </Button>
+
                                 {(task.createdBy?.id === user?.id || user?.role === 'ADMIN') && (
                                   <Button
                                     size="sm"
@@ -2140,56 +2670,112 @@ export default function EventPage() {
           {/* Chat Tab */}
           {activeTab === 'chat' && (
             <Card className="no-print">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <MessageCircle className="h-5 w-5" />
-                  Discussion
-                </CardTitle>
+              <CardHeader className="border-b bg-gradient-to-r from-christmas-green/10 to-christmas-red/10">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center gap-2">
+                    <MessageCircle className="h-5 w-5 text-christmas-green" />
+                    Discussion
+                  </CardTitle>
+                  {!notificationsEnabled && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={async () => {
+                        const permission = await requestNotificationPermission()
+                        setNotificationsEnabled(permission === 'granted')
+                        if (permission === 'granted') {
+                          toast({ title: '🔔 Notifications activées', description: 'Vous recevrez des alertes pour les nouveaux messages', variant: 'success' })
+                        }
+                      }}
+                      className="gap-2"
+                    >
+                      🔔 Activer notifications
+                    </Button>
+                  )}
+                </div>
               </CardHeader>
-              <CardContent>
-                {/* Messages */}
-                <div className="h-[400px] overflow-y-auto mb-4 space-y-4 p-4 bg-muted/50 rounded-lg">
-                  {event.chatMessages.length === 0 ? (
-                    <p className="text-center text-gray-700 py-8">
-                      Aucun message. Soyez le premier à écrire ! 💬
-                    </p>
+              <CardContent className="p-0">
+                {/* Messages container with improved styling */}
+                <div className="h-[500px] overflow-y-auto p-4 space-y-3 bg-gradient-to-b from-gray-50 to-white">
+                  {loadingTabs.chat ? (
+                    <div className="flex flex-col items-center justify-center h-full">
+                      <Loader2 className="h-8 w-8 animate-spin text-christmas-green" />
+                      <p className="text-sm text-gray-600 mt-3">Chargement des messages...</p>
+                    </div>
+                  ) : event.chatMessages.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-full text-center">
+                      <MessageCircle className="h-16 w-16 text-gray-300 mb-4" />
+                      <p className="text-gray-500 font-medium mb-2">
+                        Aucun message pour le moment
+                      </p>
+                      <p className="text-sm text-gray-400">
+                        Soyez le premier à écrire ! 💬
+                      </p>
+                    </div>
                   ) : (
                     event.chatMessages.map((msg) => (
                       <div
                         key={msg.id}
                         className={cn(
-                          'flex gap-3',
+                          'flex gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300',
                           msg.user.id === user?.id ? 'flex-row-reverse' : ''
                         )}
                       >
-                        <div className="flex-shrink-0 text-2xl">
-                          {msg.user.avatar || '👤'}
-                        </div>
-                        <div className={cn(
-                          'max-w-[70%] rounded-lg p-3',
-                          msg.user.id === user?.id
-                            ? 'bg-christmas-green text-white'
-                            : 'bg-white border'
-                        )}>
-                          <div className="font-medium text-sm mb-1">
-                            {msg.user.name}
+                        {/* Avatar */}
+                        <div className="flex-shrink-0">
+                          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-christmas-green to-christmas-red flex items-center justify-center text-xl shadow-md">
+                            {msg.user.avatar || '👤'}
                           </div>
-                          <div>{msg.content}</div>
-                          {msg.media && msg.media.length > 0 && (
-                            <div className="flex flex-wrap gap-2 mt-2">
-                              {msg.media.map((m) => (
-                                <Image key={m.id} src={m.imageUrl} alt="Chat attachment" className="max-w-xs h-auto rounded-lg" width={400} height={300} />
-                              ))}
+                        </div>
+                        
+                        {/* Message bubble */}
+                        <div className={cn(
+                          'max-w-[75%] sm:max-w-[60%]'
+                        )}>
+                          {/* Name tag */}
+                          {msg.user.id !== user?.id && (
+                            <div className="text-xs font-medium text-gray-600 mb-1 px-1">
+                              {msg.user.name}
                             </div>
                           )}
+                          
+                          {/* Bubble */}
                           <div className={cn(
-                            'text-xs mt-1',
-                            msg.user.id === user?.id ? 'text-white/70' : 'text-gray-700'
+                            'rounded-2xl px-4 py-3 shadow-sm',
+                            msg.user.id === user?.id
+                              ? 'bg-gradient-to-br from-christmas-green to-green-600 text-white rounded-tr-sm'
+                              : 'bg-white border-2 border-gray-100 text-gray-800 rounded-tl-sm'
                           )}>
-                            {new Date(msg.createdAt).toLocaleTimeString('fr-FR', {
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })}
+                            <div className="break-words">{msg.content}</div>
+                            
+                            {/* Images */}
+                            {msg.media && msg.media.length > 0 && (
+                              <div className="flex flex-wrap gap-2 mt-3">
+                                {msg.media.map((m) => (
+                                  <div key={m.id} className="relative rounded-lg overflow-hidden shadow-md hover:shadow-lg transition-shadow">
+                                    <Image 
+                                      src={m.imageUrl} 
+                                      alt="Chat attachment" 
+                                      className="max-w-[280px] h-auto rounded-lg cursor-pointer hover:opacity-95 transition-opacity" 
+                                      width={400} 
+                                      height={300}
+                                      onClick={() => window.open(m.imageUrl, '_blank')}
+                                    />
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            
+                            {/* Timestamp */}
+                            <div className={cn(
+                              'text-xs mt-2 font-medium',
+                              msg.user.id === user?.id ? 'text-white/80' : 'text-gray-500'
+                            )}>
+                              {new Date(msg.createdAt).toLocaleTimeString('fr-FR', {
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })}
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -2197,56 +2783,67 @@ export default function EventPage() {
                   )}
                 </div>
 
-                {/* Image previews */}
-                {chatImagePreviews.length > 0 && (
-                  <div className="flex flex-wrap gap-2 px-4 py-2">
-                    {chatImagePreviews.map((preview, idx) => (
-                      <div key={idx} className="relative w-20 h-20 rounded-lg overflow-hidden">
-                        <Image src={preview} alt="Preview" className="w-full h-full object-cover" fill />
-                        <button
-                          onClick={() => {
-                            setChatImageUrls(chatImageUrls.filter((_, i) => i !== idx))
-                            setChatImagePreviews(chatImagePreviews.filter((_, i) => i !== idx))
-                          }}
-                          className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-0.5 hover:bg-red-600 text-xs"
-                        >
-                          ✕
-                        </button>
-                      </div>
-                    ))}
+                {/* Input area */}
+                <div className="border-t bg-white p-4 space-y-3">
+                  {/* Image previews */}
+                  {chatImagePreviews.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {chatImagePreviews.map((preview, idx) => (
+                        <div key={idx} className="relative w-20 h-20 rounded-lg overflow-hidden border-2 border-gray-200">
+                          <Image src={preview} alt="Preview" className="w-full h-full object-cover" fill />
+                          <button
+                            onClick={() => {
+                              setChatImageUrls(chatImageUrls.filter((_, i) => i !== idx))
+                              setChatImagePreviews(chatImagePreviews.filter((_, i) => i !== idx))
+                            }}
+                            className="absolute top-0.5 right-0.5 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center hover:bg-red-600 text-xs font-bold shadow-md"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  
+                  {/* Input row */}
+                  <div className="flex gap-2">
+                    <input
+                      type="file"
+                      multiple
+                      accept="image/*"
+                      onChange={handleChatImageChange}
+                      className="hidden"
+                      id="chat-image-upload"
+                    />
+                    <Button
+                      size="icon"
+                      variant="outline"
+                      onClick={() => document.getElementById('chat-image-upload')?.click()}
+                      className="flex-shrink-0 h-11 w-11 rounded-xl hover:bg-gray-100"
+                      title="Ajouter des photos"
+                    >
+                      <span className="text-xl">📸</span>
+                    </Button>
+                    <Input
+                      placeholder="Écrivez votre message..."
+                      value={newMessage}
+                      onChange={(e) => setNewMessage(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault()
+                          handleSendMessage()
+                        }
+                      }}
+                      className="h-11 rounded-xl border-2 focus-visible:ring-christmas-green"
+                    />
+                    <Button 
+                      onClick={handleSendMessage} 
+                      disabled={!newMessage.trim() && chatImageUrls.length === 0}
+                      className="flex-shrink-0 h-11 px-6 rounded-xl bg-gradient-to-r from-christmas-green to-green-600 hover:from-green-600 hover:to-christmas-green"
+                    >
+                      <Send className="h-5 w-5" />
+                    </Button>
                   </div>
-                )}
-                <div className="flex gap-2">
-                  <input
-                    type="file"
-                    multiple
-                    accept="image/*"
-                    onChange={handleChatImageChange}
-                    className="hidden"
-                    id="chat-image-upload"
-                  />
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => document.getElementById('chat-image-upload')?.click()}
-                    className="gap-2"
-                  >
-                    📸
-                  </Button>
-                  <Input
-                    placeholder="Votre message..."
-                    value={newMessage}
-                    onChange={(e) => setNewMessage(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault()
-                        handleSendMessage()
-                      }
-                    }}
-                  />
-                  <Button onClick={handleSendMessage} disabled={!newMessage.trim()}>
-                    <Send className="h-5 w-5" />
-                  </Button>
                 </div>
               </CardContent>
             </Card>

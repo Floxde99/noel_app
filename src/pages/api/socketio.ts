@@ -28,7 +28,7 @@ export default function SocketHandler(
 
   console.log('Initializing Socket.io server...')
   const io = new SocketIOServer(res.socket.server, {
-    path: '/api/socketio',
+    path: '/socket.io',
     addTrailingSlash: false,
     cors: {
       origin: process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000',

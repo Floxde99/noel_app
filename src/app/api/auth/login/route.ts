@@ -6,6 +6,8 @@ import {
   generateRefreshToken,
   saveRefreshToken,
   parseExpiry,
+  cleanupRefreshTokens,
+  pruneUserRefreshTokens,
 } from '@/lib/auth'
 import { getZodMessage } from '@/lib/utils'
 
@@ -158,8 +160,12 @@ export async function POST(request: NextRequest) {
     const accessExpiry = process.env.JWT_ACCESS_EXPIRY || '15m'
     const accessMaxAgeSec = Math.floor(parseExpiry(accessExpiry) / 1000)
 
+    // Opportunistic cleanup to avoid accumulating expired tokens
+    await cleanupRefreshTokens(user.id)
+
     // Save refresh token to database
     await saveRefreshToken(user.id, refreshToken)
+    await pruneUserRefreshTokens(user.id)
 
     // Set refresh token cookie
     const response = NextResponse.json({

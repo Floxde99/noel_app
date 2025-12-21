@@ -20,6 +20,7 @@ async function getAuth(request: NextRequest) {
 }
 
 // GET /api/events/[id] - Get event details
+// Query params: include=contributions,polls,tasks,chatMessages,menuRecipes,participants
 export async function GET(
   request: NextRequest,
   props: { params: Promise<{ id: string }> }
@@ -54,116 +55,114 @@ export async function GET(
       )
     }
 
+    // Get query parameters for optional includes
+    const { searchParams } = new URL(request.url)
+    const includeParam = searchParams.get('include')?.split(',') || []
+    
+    // Build dynamic include object based on request
+    const includeObj: any = {}
+    
+    if (includeParam.includes('participants') || includeParam.length === 0) {
+      includeObj.eventUsers = {
+        include: {
+          user: {
+            select: { id: true, name: true, avatar: true },
+          },
+        },
+      }
+    }
+    
+    if (includeParam.includes('contributions')) {
+      includeObj.contributions = {
+        include: {
+          assignee: {
+            select: { id: true, name: true, avatar: true },
+          },
+        },
+        orderBy: { createdAt: 'desc' as const },
+      }
+    }
+    
+    if (includeParam.includes('polls')) {
+      includeObj.polls = {
+        include: {
+          createdBy: {
+            select: { id: true, name: true, avatar: true },
+          },
+          options: {
+            include: {
+              _count: { select: { votes: true } },
+              votes: {
+                include: {
+                  user: {
+                    select: { id: true, name: true, avatar: true },
+                  },
+                },
+              },
+            },
+          },
+          votes: {
+            where: { userId: payload.userId },
+          },
+        },
+        orderBy: { createdAt: 'desc' as const },
+      }
+    }
+    
+    if (includeParam.includes('tasks')) {
+      includeObj.tasks = {
+        include: {
+          assignee: {
+            select: { id: true, name: true, avatar: true },
+          },
+          createdBy: {
+            select: { id: true, name: true },
+          },
+        },
+        orderBy: { createdAt: 'desc' as const },
+      }
+    }
+    
+    if (includeParam.includes('chatMessages')) {
+      includeObj.chatMessages = {
+        include: {
+          user: {
+            select: { id: true, name: true, avatar: true },
+          },
+          media: true,
+        },
+        orderBy: { createdAt: 'desc' as const },
+        take: 50, // Last 50 messages
+      }
+    }
+    
+    if (includeParam.includes('menuRecipes')) {
+      includeObj.menuRecipes = {
+        orderBy: { createdAt: 'asc' as const },
+        include: {
+          ingredients: {
+            orderBy: { createdAt: 'asc' as const },
+            include: {
+              contribution: {
+                include: {
+                  assignee: {
+                    select: { id: true, name: true, avatar: true },
+                  },
+                },
+              },
+            },
+          },
+        },
+      }
+    }
+    
+    if (payload.role === 'ADMIN' && includeParam.includes('codes')) {
+      includeObj.eventCodes = true
+    }
+
     const event = await prisma.event.findUnique({
       where: { id: eventId },
-      include: {
-        eventUsers: {
-          include: {
-            user: {
-              select: {
-                id: true,
-                name: true,
-                avatar: true,
-              },
-            },
-          },
-        },
-        contributions: {
-          include: {
-            assignee: {
-              select: {
-                id: true,
-                name: true,
-                avatar: true,
-              },
-            },
-          },
-          orderBy: { createdAt: 'desc' },
-        },
-        polls: {
-          include: {
-            createdBy: {
-              select: {
-                id: true,
-                name: true,
-                avatar: true,
-              },
-            },
-            options: {
-              include: {
-                _count: {
-                  select: { votes: true },
-                },
-                votes: {
-                  include: {
-                    user: {
-                      select: {
-                        id: true,
-                        name: true,
-                        avatar: true,
-                      },
-                    },
-                  },
-                },
-              },
-            },
-            votes: {
-              where: { userId: payload.userId },
-            },
-          },
-          orderBy: { createdAt: 'desc' },
-        },
-        tasks: {
-          include: {
-            assignee: {
-              select: {
-                id: true,
-                name: true,
-                avatar: true,
-              },
-            },
-            createdBy: {
-              select: {
-                id: true,
-                name: true,
-              },
-            },
-          },
-          orderBy: { createdAt: 'desc' },
-        },
-        chatMessages: {
-          include: {
-            user: {
-              select: {
-                id: true,
-                name: true,
-                avatar: true,
-              },
-            },
-            media: true,
-          },
-          orderBy: { createdAt: 'desc' },
-          take: 50, // Last 50 messages
-        },
-        menuRecipes: {
-          orderBy: { createdAt: 'asc' },
-          include: {
-            ingredients: {
-              orderBy: { createdAt: 'asc' },
-              include: {
-                contribution: {
-                  include: {
-                    assignee: {
-                      select: { id: true, name: true, avatar: true },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-        eventCodes: payload.role === 'ADMIN' ? true : false,
-      },
+      include: Object.keys(includeObj).length > 0 ? includeObj : undefined,
     })
 
     if (!event) {
@@ -174,50 +173,54 @@ export async function GET(
     }
 
     // Transform data for response
-    const participants = event.eventUsers.map(
-      (eu: { user: { id: string; name: string; avatar?: string | null } }) => eu.user
-    )
+    const response: any = { event }
     
-    const polls = event.polls.map(
-      (poll: {
-        id: string
-        title: string
-        description?: string | null
-        type: 'SINGLE' | 'MULTIPLE'
-        isClosed: boolean
-        imageUrl?: string | null
-        createdById?: string | null
-        createdBy?: { id: string; name: string; avatar?: string | null } | null
-        options: Array<{ id: string; label: string; _count: { votes: number }; votes: Array<{ user: { id: string; name: string; avatar?: string | null } }> }>
-        votes: Array<{ optionId: string }>
-      }) => ({
-        id: poll.id,
-        title: poll.title,
-        description: poll.description,
-        type: poll.type,
-        isClosed: poll.isClosed,
-        imageUrl: poll.imageUrl,
-        createdBy: poll.createdBy,
-        createdById: poll.createdById,
-        options: poll.options.map((option: { id: string; label: string; _count: { votes: number }; votes: Array<{ user: { id: string; name: string; avatar?: string | null } }> }) => ({
-          id: option.id,
-          label: option.label,
-          voteCount: option._count.votes,
-          voters: option.votes.map((v: { user: { id: string; name: string; avatar?: string | null } }) => v.user),
-        })),
-        hasVoted: poll.votes.length > 0,
-        userVotes: poll.votes.map((v: { optionId: string }) => v.optionId),
-      })
-    )
+    if (event.eventUsers) {
+      response.event.participants = event.eventUsers.map(
+        (eu: { user: { id: string; name: string; avatar?: string | null } }) => eu.user
+      )
+      delete response.event.eventUsers
+    }
+    
+    if (event.polls) {
+      response.event.polls = event.polls.map(
+        (poll: {
+          id: string
+          title: string
+          description?: string | null
+          type: 'SINGLE' | 'MULTIPLE'
+          isClosed: boolean
+          imageUrl?: string | null
+          createdById?: string | null
+          createdBy?: { id: string; name: string; avatar?: string | null } | null
+          options: Array<{ id: string; label: string; _count: { votes: number }; votes: Array<{ user: { id: string; name: string; avatar?: string | null } }> }>
+          votes: Array<{ optionId: string }>
+        }) => ({
+          id: poll.id,
+          title: poll.title,
+          description: poll.description,
+          type: poll.type,
+          isClosed: poll.isClosed,
+          imageUrl: poll.imageUrl,
+          createdBy: poll.createdBy,
+          createdById: poll.createdById,
+          options: poll.options.map((option: { id: string; label: string; _count: { votes: number }; votes: Array<{ user: { id: string; name: string; avatar?: string | null } }> }) => ({
+            id: option.id,
+            label: option.label,
+            voteCount: option._count.votes,
+            voters: option.votes.map((v: { user: { id: string; name: string; avatar?: string | null } }) => v.user),
+          })),
+          hasVoted: poll.votes.length > 0,
+          userVotes: poll.votes.map((v: { optionId: string }) => v.optionId),
+        })
+      )
+    }
+    
+    if (event.chatMessages) {
+      response.event.chatMessages = event.chatMessages.reverse() // Chronological order
+    }
 
-    return NextResponse.json({
-      event: {
-        ...event,
-        participants,
-        polls,
-        chatMessages: event.chatMessages.reverse(), // Chronological order
-      },
-    })
+    return NextResponse.json(response)
   } catch (error) {
     console.error('Get event error:', error)
     return NextResponse.json(

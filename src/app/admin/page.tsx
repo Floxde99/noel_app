@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
+import Image from 'next/image'
 import { useAuth } from '@/components/providers/auth-provider'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -24,8 +25,10 @@ import {
   ChefHat,
   ClipboardList,
   Lock,
-  RefreshCw
+  RefreshCw,
+  TrendingUp
 } from 'lucide-react'
+import QRCode from 'qrcode'
 
 interface Event {
   id: string
@@ -84,6 +87,8 @@ export default function AdminPage() {
   const [activeTab, setActiveTab] = useState<'events' | 'codes' | 'users' | 'polls' | 'messages' | 'menu'>(isAdmin ? 'events' : 'menu')
   const [events, setEvents] = useState<Event[]>([])
   const [codes, setCodes] = useState<EventCode[]>([])
+  const [qrImages, setQrImages] = useState<Record<string, string>>({})
+  const [qrLoading, setQrLoading] = useState<Record<string, boolean>>({})
   const [users, setUsers] = useState<User[]>([])
   const [polls, setPolls] = useState<Poll[]>([])
   const [messages, setMessages] = useState<any[]>([])
@@ -156,7 +161,7 @@ export default function AdminPage() {
         }
         if (pollsRes.ok) {
           const data = await pollsRes.json()
-          setPolls(data.polls || [])
+          setPolls(Array.isArray(data) ? data : (data.polls || []))
         }
         if (messagesRes.ok) {
           const data = await messagesRes.json()
@@ -488,10 +493,47 @@ export default function AdminPage() {
     toast({ title: 'Code copié ! 📋' })
   }
 
+  const buildCodeUrl = (code: string) => `${window.location.origin}/login?code=${encodeURIComponent(code)}`
+
+  const generateQrForCode = async (code: string) => {
+    try {
+      setQrLoading((prev) => ({ ...prev, [code]: true }))
+      const dataUrl = await QRCode.toDataURL(buildCodeUrl(code), {
+        margin: 1,
+        width: 260,
+      })
+      setQrImages((prev) => ({ ...prev, [code]: dataUrl }))
+    } catch (error) {
+      console.error('QR generation error', error)
+      toast({ title: 'Erreur', description: 'Impossible de générer le QR', variant: 'destructive' })
+    } finally {
+      setQrLoading((prev) => ({ ...prev, [code]: false }))
+    }
+  }
+
+  const downloadQr = (code: string) => {
+    const dataUrl = qrImages[code]
+    if (!dataUrl) return
+    const a = document.createElement('a')
+    a.href = dataUrl
+    a.download = `code-${code}.png`
+    a.click()
+  }
+
   if (authLoading || isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <Loader2 className="h-12 w-12 animate-spin text-christmas-red" />
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-green-900 via-red-900 to-green-900">
+        <div className="text-center">
+          <div className="text-6xl animate-bounce mb-4">🎄</div>
+          <div className="text-white text-xl font-semibold">Chargement...</div>
+          <div className="mt-4 flex justify-center gap-1">
+            <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse" style={{ animationDelay: '0ms' }}></div>
+            <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse" style={{ animationDelay: '150ms' }}></div>
+            <div className="w-3 h-3 bg-yellow-500 rounded-full animate-pulse" style={{ animationDelay: '300ms' }}></div>
+            <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse" style={{ animationDelay: '450ms' }}></div>
+            <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse" style={{ animationDelay: '600ms' }}></div>
+          </div>
+        </div>
       </div>
     )
   }
@@ -512,9 +554,19 @@ export default function AdminPage() {
               <Settings className="h-5 w-5" />
               {isAdmin ? 'Administration' : 'Menu'}
             </h1>
-            <Button variant="ghost" onClick={fetchData}>
-              <RefreshCw className="h-5 w-5" />
-            </Button>
+            <div className="flex items-center gap-2">
+              {isAdmin && (
+                <Link href="/admin/metrics">
+                  <Button variant="outline" className="gap-2">
+                    <TrendingUp className="h-5 w-5" />
+                    Métriques
+                  </Button>
+                </Link>
+              )}
+              <Button variant="ghost" onClick={fetchData}>
+                <RefreshCw className="h-5 w-5" />
+              </Button>
+            </div>
           </div>
         </div>
       </header>
@@ -806,24 +858,52 @@ export default function AdminPage() {
               <CardContent>
                 <div className="space-y-3">
                   {codes.map((code) => (
-                    <div key={code.id} className="p-3 border rounded-lg flex items-center justify-between">
-                      <div>
-                        <div className="font-mono font-medium flex items-center gap-2">
-                          {code.code}
-                          {code.isMaster && <Lock className="h-4 w-4 text-christmas-gold" />}
+                    <div key={code.id} className="p-3 border rounded-lg space-y-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="font-mono font-medium flex items-center gap-2">
+                            {code.code}
+                            {code.isMaster && <Lock className="h-4 w-4 text-christmas-gold" />}
+                          </div>
+                          <div className="text-sm text-muted-foreground">
+                            {code.events.map(ce => ce.event.name).join(' • ')}
+                          </div>
                         </div>
-                        <div className="text-sm text-muted-foreground">
-                          {code.events.map(ce => ce.event.name).join(' • ')}
+                        <div className="flex gap-2">
+                          <Button size="sm" variant="ghost" onClick={() => copyCode(code.code)}>
+                            <Copy className="h-4 w-4" />
+                          </Button>
+                          <Button size="sm" variant="ghost" onClick={() => generateQrForCode(code.code)} disabled={qrLoading[code.code]}>
+                            {qrLoading[code.code] ? <Loader2 className="h-4 w-4 animate-spin" /> : 'QR'}
+                          </Button>
+                          <Button size="sm" variant="ghost" onClick={() => handleDeleteCode(code.id)}>
+                            <Trash2 className="h-4 w-4 text-red-500" />
+                          </Button>
                         </div>
                       </div>
-                      <div className="flex gap-2">
-                        <Button size="sm" variant="ghost" onClick={() => copyCode(code.code)}>
-                          <Copy className="h-4 w-4" />
-                        </Button>
-                        <Button size="sm" variant="ghost" onClick={() => handleDeleteCode(code.id)}>
-                          <Trash2 className="h-4 w-4 text-red-500" />
-                        </Button>
-                      </div>
+
+                      {qrImages[code.code] && (
+                        <div className="flex items-center gap-4">
+                          <Image
+                            src={qrImages[code.code]}
+                            alt={`QR pour ${code.code}`}
+                            width={96}
+                            height={96}
+                            className="w-24 h-24 border rounded"
+                          />
+                          <div className="space-y-2 text-sm text-muted-foreground">
+                            <div>Scan pour pré-remplir le code sur la page login.</div>
+                            <div className="flex gap-2">
+                              <Button size="sm" variant="outline" onClick={() => downloadQr(code.code)}>
+                                Télécharger PNG
+                              </Button>
+                              <Button size="sm" variant="outline" onClick={() => copyCode(buildCodeUrl(code.code))}>
+                                Copier le lien
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -867,7 +947,7 @@ export default function AdminPage() {
                     <option value="ADMIN">ADMIN</option>
                   </select>
                 </div>
-                <Button onClick={handleCreateUser} className="w-full">Créer l'utilisateur</Button>
+                <Button onClick={handleCreateUser} className="w-full">Créer l&apos;utilisateur</Button>
               </CardContent>
             </Card>
 
@@ -976,7 +1056,10 @@ export default function AdminPage() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
-                  {polls.map((poll) => (
+                  {polls.length === 0 ? (
+                    <p className="text-muted-foreground">Aucun sondage pour l&apos;instant.</p>
+                  ) : (
+                    polls.map((poll) => (
                     <div key={poll.id} className="p-3 border rounded-lg">
                       <div className="flex items-center justify-between mb-2">
                         <div className="font-medium">{poll.title}</div>
@@ -999,7 +1082,8 @@ export default function AdminPage() {
                         </Button>
                       )}
                     </div>
-                  ))}
+                    ))
+                  )}
                 </div>
               </CardContent>
             </Card>

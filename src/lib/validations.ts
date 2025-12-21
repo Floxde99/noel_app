@@ -38,6 +38,7 @@ export const createContributionSchema = z.object({
   description: z.string().max(500).optional(),
   category: z.enum(['plat', 'boisson', 'décor', 'autre', 'ingredient']).optional(),
   quantity: z.number().int().min(1).max(100).default(1),
+  budget: z.number().min(0).max(9999999.99).optional(),
   imageUrl: z.union([z.string().url(), z.string().regex(/^\/uploads\/.+/)]).optional(),
   eventId: z.string().cuid(),
   assigneeId: z.string().cuid().optional(),
@@ -48,6 +49,7 @@ export const updateContributionSchema = z.object({
   description: z.string().max(500).optional(),
   category: z.enum(['plat', 'boisson', 'décor', 'autre', 'ingredient']).optional(),
   quantity: z.number().int().min(1).max(100).optional(),
+  budget: z.number().min(0).max(9999999.99).optional().nullable(),
   status: z.enum(['PLANNED', 'CONFIRMED', 'BROUGHT']).optional(),
   assigneeId: z.string().cuid().optional().nullable(),
 })

@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useToast } from '@/hooks/use-toast'
-import { ArrowLeft, Trash2, Loader2, Edit3 } from 'lucide-react'
+import { ArrowLeft, Trash2, Loader2, Edit3, Copy } from 'lucide-react'
 
 export default function EditEventPage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter()
@@ -34,6 +34,8 @@ export default function EditEventPage({ params }: { params: Promise<{ id: string
     description: '',
     category: '',
     status: 'PLANNED',
+    quantity: 1,
+    budget: '',
   })
   const [savingContributionId, setSavingContributionId] = useState<string | null>(null)
   const [eventId, setEventId] = useState<string | null>(null)
@@ -165,6 +167,8 @@ export default function EditEventPage({ params }: { params: Promise<{ id: string
           description: editingContributionForm.description.trim() || undefined,
           category: editingContributionForm.category.trim() || undefined,
           status: editingContributionForm.status,
+          quantity: editingContributionForm.quantity || 1,
+          budget: editingContributionForm.budget ? parseFloat(editingContributionForm.budget) : null,
         }),
       })
 
@@ -175,12 +179,41 @@ export default function EditEventPage({ params }: { params: Promise<{ id: string
 
       toast({ title: 'Contribution mise à jour', variant: 'success' })
       setEditingContributionId(null)
-      setEditingContributionForm({ title: '', description: '', category: '', status: 'PLANNED' })
+      setEditingContributionForm({ title: '', description: '', category: '', status: 'PLANNED', quantity: 1, budget: '' })
       await loadEvent()
     } catch (error) {
       toast({ title: 'Erreur', description: error instanceof Error ? error.message : 'Erreur', variant: 'destructive' })
     } finally {
       setSavingContributionId(null)
+    }
+  }
+
+  const handleDuplicateContribution = async (contrib: any) => {
+    if (!eventId) return
+    if (!confirm(`Dupliquer "${contrib.title}" ?`)) return
+
+    try {
+      const res = await fetch('/api/contributions', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: contrib.title,
+          description: contrib.description,
+          category: contrib.category,
+          eventId,
+        }),
+      })
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data?.error || 'Impossible de dupliquer')
+      }
+
+      toast({ title: 'Contribution dupliquée ! 📋', variant: 'success' })
+      await loadEvent()
+    } catch (error) {
+      toast({ title: 'Erreur', description: error instanceof Error ? error.message : 'Erreur', variant: 'destructive' })
     }
   }
 
@@ -369,12 +402,36 @@ export default function EditEventPage({ params }: { params: Promise<{ id: string
                                 </select>
                               </div>
                             </div>
+                            <div className="grid grid-cols-2 gap-3">
+                              <div>
+                                <Label>Quantité</Label>
+                                <Input
+                                  type="number"
+                                  min="1"
+                                  value={editingContributionForm.quantity}
+                                  onChange={(e) => setEditingContributionForm((prev) => ({ ...prev, quantity: parseInt(e.target.value) || 1 }))}
+                                  className="mt-1"
+                                />
+                              </div>
+                              <div>
+                                <Label>Budget (€)</Label>
+                                <Input
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  placeholder="0.00"
+                                  value={editingContributionForm.budget}
+                                  onChange={(e) => setEditingContributionForm((prev) => ({ ...prev, budget: e.target.value }))}
+                                  className="mt-1"
+                                />
+                              </div>
+                            </div>
                             <div className="flex gap-2 justify-end">
                               <Button
                                 variant="outline"
                                 onClick={() => {
                                   setEditingContributionId(null)
-                                  setEditingContributionForm({ title: '', description: '', category: '', status: 'PLANNED' })
+                                  setEditingContributionForm({ title: '', description: '', category: '', status: 'PLANNED', quantity: 1, budget: '' })
                                 }}
                                 disabled={savingContributionId === c.id}
                               >
@@ -411,11 +468,21 @@ export default function EditEventPage({ params }: { params: Promise<{ id: string
                                     description: c.description || '',
                                     category: c.category || '',
                                     status: c.status || 'PLANNED',
+                                    quantity: c.quantity || 1,
+                                    budget: c.budget?.toString() || '',
                                   })
                                 }}
                                 aria-label="Modifier la contribution"
                               >
                                 <Edit3 className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                onClick={() => handleDuplicateContribution(c)}
+                                aria-label="Dupliquer la contribution"
+                              >
+                                <Copy className="h-4 w-4 text-blue-500" />
                               </Button>
                               <Button
                                 size="icon"
