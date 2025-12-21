@@ -177,43 +177,30 @@ export async function GET(
     
     if (event.eventUsers) {
       response.event.participants = event.eventUsers.map(
-        (eu: { user: { id: string; name: string; avatar?: string | null } }) => eu.user
+        (eu: any) => eu.user
       )
       delete response.event.eventUsers
     }
     
     if (event.polls) {
-      response.event.polls = event.polls.map(
-        (poll: {
-          id: string
-          title: string
-          description?: string | null
-          type: 'SINGLE' | 'MULTIPLE'
-          isClosed: boolean
-          imageUrl?: string | null
-          createdById?: string | null
-          createdBy?: { id: string; name: string; avatar?: string | null } | null
-          options: Array<{ id: string; label: string; _count: { votes: number }; votes: Array<{ user: { id: string; name: string; avatar?: string | null } }> }>
-          votes: Array<{ optionId: string }>
-        }) => ({
-          id: poll.id,
-          title: poll.title,
-          description: poll.description,
-          type: poll.type,
-          isClosed: poll.isClosed,
-          imageUrl: poll.imageUrl,
-          createdBy: poll.createdBy,
-          createdById: poll.createdById,
-          options: poll.options.map((option: { id: string; label: string; _count: { votes: number }; votes: Array<{ user: { id: string; name: string; avatar?: string | null } }> }) => ({
-            id: option.id,
-            label: option.label,
-            voteCount: option._count.votes,
-            voters: option.votes.map((v: { user: { id: string; name: string; avatar?: string | null } }) => v.user),
-          })),
-          hasVoted: poll.votes.length > 0,
-          userVotes: poll.votes.map((v: { optionId: string }) => v.optionId),
-        })
-      )
+      response.event.polls = event.polls.map((poll: any) => ({
+        id: poll.id,
+        title: poll.title,
+        description: poll.description,
+        type: poll.type,
+        isClosed: poll.isClosed,
+        imageUrl: poll.imageUrl,
+        createdBy: poll.createdBy,
+        createdById: poll.createdById,
+        options: poll.options.map((option: any) => ({
+          id: option.id,
+          label: option.label,
+          voteCount: option._count.votes,
+          voters: option.votes.map((v: any) => v.user),
+        })),
+        hasVoted: poll.votes.length > 0,
+        userVotes: poll.votes.map((v: any) => v.optionId),
+      }))
     }
     
     if (event.chatMessages) {
