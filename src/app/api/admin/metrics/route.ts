@@ -118,6 +118,62 @@ export async function GET(req: NextRequest) {
     const uploadsPath = path.join(process.cwd(), 'public', 'uploads')
     const uploadsSize = await getDirectorySize(uploadsPath)
 
+    // Lister les fichiers du dossier uploads avec statut de référence
+    let uploadsList: Array<{
+      filename: string
+      url: string
+      sizeBytes: number
+      size: string
+      referencedBy: Array<'CHAT' | 'CONTRIBUTION' | 'POLL' | 'EVENT_BANNER'>
+      isOrphan: boolean
+    }> = []
+
+    try {
+      const [chatMedia, contribImages, pollImages, eventBanners] = await Promise.all([
+        prisma.chatMessageMedia.findMany({ select: { imageUrl: true } }),
+        prisma.contribution.findMany({ select: { imageUrl: true }, where: { imageUrl: { not: null } } }),
+        prisma.poll.findMany({ select: { imageUrl: true }, where: { imageUrl: { not: null } } }),
+        prisma.event.findMany({ select: { bannerImage: true }, where: { bannerImage: { not: null } } }),
+      ])
+
+      const chatSet = new Set((chatMedia || []).map((m) => m.imageUrl))
+      const contribSet = new Set((contribImages || []).map((c) => c.imageUrl as string))
+      const pollSet = new Set((pollImages || []).map((p) => p.imageUrl as string))
+      const bannerSet = new Set((eventBanners || []).map((e) => e.bannerImage as string))
+
+      const items = await fs.readdir(uploadsPath, { withFileTypes: true })
+      for (const item of items) {
+        if (!item.isFile()) continue
+        const filename = item.name
+        const filePath = path.join(uploadsPath, filename)
+        const stat = await fs.stat(filePath)
+        const url = `/uploads/${filename}`
+
+        const referencedBy: Array<'CHAT' | 'CONTRIBUTION' | 'POLL' | 'EVENT_BANNER'> = []
+        if (chatSet.has(url)) referencedBy.push('CHAT')
+        if (contribSet.has(url)) referencedBy.push('CONTRIBUTION')
+        if (pollSet.has(url)) referencedBy.push('POLL')
+        if (bannerSet.has(url)) referencedBy.push('EVENT_BANNER')
+
+        uploadsList.push({
+          filename,
+          url,
+          sizeBytes: stat.size,
+          size: formatBytes(stat.size),
+          referencedBy,
+          isOrphan: referencedBy.length === 0,
+        })
+      }
+      // Trier: orphelins en haut, puis par taille desc
+      uploadsList.sort((a, b) => {
+        if (a.isOrphan !== b.isOrphan) return a.isOrphan ? -1 : 1
+        return b.sizeBytes - a.sizeBytes
+      })
+    } catch (error) {
+      console.error('Error listing uploads:', error)
+      uploadsList = []
+    }
+
     // Statistiques détaillées par table
     const [
       activeEvents,
@@ -308,6 +364,7 @@ export async function GET(req: NextRequest) {
       system: {
         uploadsSize: formatBytes(uploadsSize),
         uploadsSizeBytes: uploadsSize,
+        uploadsList,
         database: {
           name: databaseName || null,
           size: databaseSizeBytesFinal === null ? '—' : formatBytes(databaseSizeBytesFinal),

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
 import { verifyAccessToken } from '@/lib/auth'
 import { updateContributionSchema } from '@/lib/validations'
+import { deleteImageFile } from '@/lib/imageProcessor'
 import { getZodMessage } from '@/lib/utils'
 
 async function getAuth(request: NextRequest) {
@@ -130,6 +131,11 @@ export async function DELETE(
         { error: 'Accès non autorisé' },
         { status: 403 }
       )
+    }
+
+    // Delete associated image from filesystem if present
+    if (existing.imageUrl && existing.imageUrl.startsWith('/uploads/')) {
+      await deleteImageFile(existing.imageUrl.replace(/^\//, ''))
     }
 
     await prisma.contribution.delete({

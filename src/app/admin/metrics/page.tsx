@@ -7,6 +7,7 @@ import { useAuth } from '@/components/providers/auth-provider'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { ArrowLeft, BarChart3, Database, HardDrive, Image as ImageIcon, RefreshCw, Activity } from 'lucide-react'
+import Image from 'next/image'
 
 export default function MetricsPage() {
   const { user, accessToken, isLoading: authLoading, isAuthenticated } = useAuth()
@@ -337,6 +338,167 @@ export default function MetricsPage() {
                     <span className="font-bold text-gray-900">{apiMetrics.system.imagesBreakdown.pollBanners}</span>
                   </div>
                 </div>
+
+                {/* Uploads detailed list */}
+                {Array.isArray(apiMetrics.system.uploadsList) && apiMetrics.system.uploadsList.length > 0 && (
+                  <div className="mt-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="text-sm font-semibold text-gray-700">Fichiers dans public/uploads</div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={async () => {
+                          if (!window.confirm('Supprimer tous les fichiers orphelins ? Cette action est irréversible.')) return
+                          try {
+                            const res = await fetch('/api/admin/uploads', {
+                              method: 'POST',
+                              credentials: 'include',
+                              headers: {
+                                'Content-Type': 'application/json',
+                                ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+                              },
+                              body: JSON.stringify({ action: 'delete-orphans' }),
+                            })
+                            if (res.ok) {
+                              await fetchMetrics()
+                            }
+                          } catch (e) {
+                            console.error('Delete orphans failed', e)
+                          }
+                        }}
+                      >
+                        Supprimer les orphelins
+                      </Button>
+                    </div>
+
+                    {/* Responsive grid - cleaner design */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                      {apiMetrics.system.uploadsList.map((f: any) => (
+                        <div
+                          key={f.filename}
+                          className={`rounded-lg border-2 overflow-hidden flex flex-col transition-all hover:shadow-lg ${
+                            f.isOrphan
+                              ? 'border-red-200 bg-gradient-to-br from-red-50 to-white'
+                              : 'border-green-200 bg-gradient-to-br from-green-50 to-white'
+                          }`}
+                        >
+                          {/* Image Preview */}
+                          <div className="relative w-full aspect-square bg-gray-100 overflow-hidden">
+                            <Image
+                              src={f.url}
+                              alt={f.filename}
+                              fill
+                              className="object-cover"
+                            />
+                            {/* Status badge */}
+                            <div className="absolute top-2 right-2">
+                              {f.isOrphan ? (
+                                <span className="px-2 py-1 bg-red-500 text-white rounded-full text-xs font-bold">Orphelin</span>
+                              ) : (
+                                <span className="px-2 py-1 bg-green-500 text-white rounded-full text-xs font-bold">Référencé</span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Content */}
+                          <div className="flex flex-col gap-3 p-3">
+                            {/* File info */}
+                            <div className="flex-1">
+                              <div className="font-mono text-xs text-gray-500 truncate mb-1">{f.filename}</div>
+                              <div className="text-sm font-medium text-gray-900 mb-2">{f.size}</div>
+                              {f.referencedBy && f.referencedBy.length > 0 && (
+                                <div className="flex flex-wrap gap-1">
+                                  {f.referencedBy.map((r: string) => (
+                                    <span
+                                      key={r}
+                                      className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full text-xs font-medium"
+                                    >
+                                      {r === 'CHAT'
+                                        ? 'Chat'
+                                        : r === 'CONTRIBUTION'
+                                        ? 'Contribution'
+                                        : r === 'POLL'
+                                        ? 'Sondage'
+                                        : r === 'EVENT_BANNER'
+                                        ? 'Bannière'
+                                        : r}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Actions */}
+                            <div className="flex gap-2 pt-2 border-t">
+                              {f.isOrphan ? (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="flex-1 text-red-600 border-red-200 hover:bg-red-50"
+                                  onClick={async () => {
+                                    try {
+                                      const res = await fetch('/api/admin/uploads', {
+                                        method: 'POST',
+                                        credentials: 'include',
+                                        headers: {
+                                          'Content-Type': 'application/json',
+                                          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+                                        },
+                                        body: JSON.stringify({ action: 'delete-file', url: f.url }),
+                                      })
+                                      if (res.ok) {
+                                        await fetchMetrics()
+                                      }
+                                    } catch (e) {
+                                      console.error('Delete file failed', e)
+                                    }
+                                  }}
+                                >
+                                  Supprimer
+                                </Button>
+                              ) : (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="flex-1 text-gray-500 hover:text-gray-700"
+                                  disabled
+                                >
+                                  Actif
+                                </Button>
+                              )}
+                              <Button
+                                variant="destructive"
+                                size="sm"
+                                className="flex-1"
+                                onClick={async () => {
+                                  if (!window.confirm('Retirer l\'image (références en BDD supprimées) ?')) return
+                                  try {
+                                    const res = await fetch('/api/admin/uploads', {
+                                      method: 'POST',
+                                      credentials: 'include',
+                                      headers: {
+                                        'Content-Type': 'application/json',
+                                        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+                                      },
+                                      body: JSON.stringify({ action: 'moderate-image', url: f.url }),
+                                    })
+                                    if (res.ok) {
+                                      await fetchMetrics()
+                                    }
+                                  } catch (e) {
+                                    console.error('Moderation failed', e)
+                                  }
+                                }}
+                              >
+                                Retirer
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 <div className="mt-4 p-3 bg-yellow-50 rounded-lg border border-yellow-200">
                   <div className="flex items-start gap-2">

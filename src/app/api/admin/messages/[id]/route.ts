@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
+import { deleteImageFile } from '@/lib/imageProcessor'
 import { verifyAccessToken } from '@/lib/auth'
 
 async function requireAdmin(request: NextRequest) {
@@ -77,16 +78,27 @@ export async function DELETE(
       return NextResponse.json({ error: 'Accès non autorisé' }, { status: 403 })
     }
 
+    // Fetch message with media to cleanup files first
+    const existing = await prisma.chatMessage.findUnique({
+      where: { id },
+      include: { media: true, user: { select: { id: true, name: true } } },
+    })
+
+    if (!existing) {
+      return NextResponse.json({ error: 'Message non trouvé' }, { status: 404 })
+    }
+
+    // Delete attached images from filesystem
+    for (const m of existing.media) {
+      if (m.imageUrl && m.imageUrl.startsWith('/uploads/')) {
+        await deleteImageFile(m.imageUrl.replace(/^\//, ''))
+      }
+    }
+
+    // Delete message (DB will cascade delete media rows)
     const message = await prisma.chatMessage.delete({
       where: { id },
-      include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-      },
+      include: { user: { select: { id: true, name: true } } },
     })
 
     return NextResponse.json({ 
