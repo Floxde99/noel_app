@@ -16,15 +16,15 @@ jobs:
       - name: Setup SSH
         uses: webfactory/ssh-agent@v0.9.0
         with:
-          ssh-private-key: ${{ secrets.VPS_SSH_KEY }}
+          ssh-private-key: ${{ secrets.VPS_SSH_KEY-Production }}
 
       - name: Deploy on VPS
         run: |
           ssh -o StrictHostKeyChecking=no \
-          ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'EOF'
+          ${{ secrets.VPS_USER-Production }}@${{ secrets.VPS_HOST-Production }} << 'EOF'
 
           set -e
-          cd ${{ secrets.VPS_PATH }}
+          cd ${{ secrets.VPS_PATH-Production }}
 
           git pull origin main
           npm ci
