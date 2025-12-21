@@ -42,7 +42,7 @@ export function generateAccessToken(payload: TokenPayload): string {
 
 export function generateRefreshToken(payload: TokenPayload): string {
   const { NEXTAUTH_SECRET } = getJwtSecrets();
-  const expiresIn = (process.env.JWT_REFRESH_EXPIRY || '7d') as SignOptions['expiresIn'];
+  const expiresIn = (process.env.JWT_REFRESH_EXPIRY || '15d') as SignOptions['expiresIn'];
   return jwt.sign(payload, NEXTAUTH_SECRET, { expiresIn });
 }
 
@@ -65,8 +65,9 @@ export function verifyRefreshToken(token: string): TokenPayload | null {
 }
 
 export async function saveRefreshToken(userId: string, token: string): Promise<void> {
-  const expiresAt = new Date()
-  expiresAt.setDate(expiresAt.getDate() + 7) // 7 days
+  const refreshExpiry = process.env.JWT_REFRESH_EXPIRY || '15d'
+  const expiresInMs = parseExpiry(refreshExpiry)
+  const expiresAt = new Date(Date.now() + expiresInMs)
 
   try {
     await prisma.refreshToken.create({

@@ -5,6 +5,7 @@ import {
   generateAccessToken,
   generateRefreshToken,
   saveRefreshToken,
+  parseExpiry,
 } from '@/lib/auth'
 import { getZodMessage } from '@/lib/utils'
 
@@ -152,6 +153,11 @@ export async function POST(request: NextRequest) {
     const accessToken = generateAccessToken(tokenPayload)
     const refreshToken = generateRefreshToken(tokenPayload)
 
+    const refreshExpiry = process.env.JWT_REFRESH_EXPIRY || '15d'
+    const refreshMaxAgeSec = Math.floor(parseExpiry(refreshExpiry) / 1000)
+    const accessExpiry = process.env.JWT_ACCESS_EXPIRY || '15m'
+    const accessMaxAgeSec = Math.floor(parseExpiry(accessExpiry) / 1000)
+
     // Save refresh token to database
     await saveRefreshToken(user.id, refreshToken)
 
@@ -172,7 +178,7 @@ export async function POST(request: NextRequest) {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
-      maxAge: 7 * 24 * 60 * 60, // 7 days
+      maxAge: refreshMaxAgeSec,
       path: '/',
     })
 
@@ -181,7 +187,7 @@ export async function POST(request: NextRequest) {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
-      maxAge: 15 * 60, // 15 minutes
+      maxAge: accessMaxAgeSec,
       path: '/',
     })
 

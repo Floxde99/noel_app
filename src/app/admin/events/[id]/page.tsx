@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useToast } from '@/hooks/use-toast'
-import { ArrowLeft, Trash2, Loader2 } from 'lucide-react'
+import { ArrowLeft, Trash2, Loader2, Edit3 } from 'lucide-react'
 
 export default function EditEventPage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter()
@@ -27,6 +27,15 @@ export default function EditEventPage({ params }: { params: Promise<{ id: string
     status: 'OPEN',
   })
   const [isDeleting, setIsDeleting] = useState(false)
+  const [deletingContributionId, setDeletingContributionId] = useState<string | null>(null)
+  const [editingContributionId, setEditingContributionId] = useState<string | null>(null)
+  const [editingContributionForm, setEditingContributionForm] = useState({
+    title: '',
+    description: '',
+    category: '',
+    status: 'PLANNED',
+  })
+  const [savingContributionId, setSavingContributionId] = useState<string | null>(null)
   const [eventId, setEventId] = useState<string | null>(null)
 
   useEffect(() => {
@@ -111,6 +120,67 @@ export default function EditEventPage({ params }: { params: Promise<{ id: string
       router.push('/admin')
     } catch (error) {
       toast({ title: 'Erreur', description: error instanceof Error ? error.message : 'Erreur interne', variant: 'destructive' })
+    }
+  }
+
+  const handleDeleteContribution = async (contributionId: string) => {
+    if (!eventId) return
+    if (!confirm('Supprimer cette contribution ?')) return
+    setDeletingContributionId(contributionId)
+    try {
+      const res = await fetch(`/api/contributions/${contributionId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      })
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data?.error || 'Impossible de supprimer')
+      }
+
+      toast({ title: 'Contribution supprimée', variant: 'success' })
+      await loadEvent()
+    } catch (error) {
+      toast({ title: 'Erreur', description: error instanceof Error ? error.message : 'Erreur', variant: 'destructive' })
+    } finally {
+      setDeletingContributionId(null)
+    }
+  }
+
+  const handleSaveContribution = async () => {
+    if (!eventId || !editingContributionId) return
+    if (!editingContributionForm.title.trim()) {
+      toast({ title: 'Titre requis', description: 'Donnez un titre à la contribution', variant: 'destructive' })
+      return
+    }
+
+    setSavingContributionId(editingContributionId)
+    try {
+      const res = await fetch(`/api/contributions/${editingContributionId}`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: editingContributionForm.title.trim(),
+          description: editingContributionForm.description.trim() || undefined,
+          category: editingContributionForm.category.trim() || undefined,
+          status: editingContributionForm.status,
+        }),
+      })
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data?.error || 'Impossible de mettre à jour')
+      }
+
+      toast({ title: 'Contribution mise à jour', variant: 'success' })
+      setEditingContributionId(null)
+      setEditingContributionForm({ title: '', description: '', category: '', status: 'PLANNED' })
+      await loadEvent()
+    } catch (error) {
+      toast({ title: 'Erreur', description: error instanceof Error ? error.message : 'Erreur', variant: 'destructive' })
+    } finally {
+      setSavingContributionId(null)
     }
   }
 
@@ -244,6 +314,132 @@ export default function EditEventPage({ params }: { params: Promise<{ id: string
                 <option value="OPEN">Ouvert</option>
                 <option value="CLOSED">Fermé</option>
               </select>
+            </div>
+
+            <div className="pt-4 border-t">
+              <div className="flex items-center justify-between">
+                <Label>Contributions ({event?.contributions?.length ?? 0})</Label>
+              </div>
+              <div className="mt-3 space-y-3">
+                {event?.contributions?.length ? (
+                  event.contributions.map((c: any) => {
+                    const isEditing = editingContributionId === c.id
+                    return (
+                      <div key={c.id} className="rounded border p-3">
+                        {isEditing ? (
+                          <div className="space-y-3">
+                            <div>
+                              <Label>Titre</Label>
+                              <Input
+                                value={editingContributionForm.title}
+                                onChange={(e) => setEditingContributionForm((prev) => ({ ...prev, title: e.target.value }))}
+                                className="mt-1"
+                              />
+                            </div>
+                            <div>
+                              <Label>Description</Label>
+                              <textarea
+                                value={editingContributionForm.description}
+                                onChange={(e) => setEditingContributionForm((prev) => ({ ...prev, description: e.target.value }))}
+                                className="w-full mt-1 p-2 border rounded"
+                                rows={2}
+                                placeholder="Description (optionnelle)"
+                              />
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                              <div>
+                                <Label>Catégorie</Label>
+                                <Input
+                                  value={editingContributionForm.category}
+                                  onChange={(e) => setEditingContributionForm((prev) => ({ ...prev, category: e.target.value }))}
+                                  className="mt-1"
+                                  placeholder="plat, boisson, ingredient…"
+                                />
+                              </div>
+                              <div>
+                                <Label>Statut</Label>
+                                <select
+                                  value={editingContributionForm.status}
+                                  onChange={(e) => setEditingContributionForm((prev) => ({ ...prev, status: e.target.value }))}
+                                  className="w-full mt-1 p-2 border rounded"
+                                >
+                                  <option value="PLANNED">PLANNED</option>
+                                  <option value="CONFIRMED">CONFIRMED</option>
+                                  <option value="BROUGHT">BROUGHT</option>
+                                </select>
+                              </div>
+                            </div>
+                            <div className="flex gap-2 justify-end">
+                              <Button
+                                variant="outline"
+                                onClick={() => {
+                                  setEditingContributionId(null)
+                                  setEditingContributionForm({ title: '', description: '', category: '', status: 'PLANNED' })
+                                }}
+                                disabled={savingContributionId === c.id}
+                              >
+                                Annuler
+                              </Button>
+                              <Button
+                                onClick={handleSaveContribution}
+                                disabled={savingContributionId === c.id}
+                              >
+                                {savingContributionId === c.id ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  'Enregistrer'
+                                )}
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="space-y-1 min-w-0">
+                              <div className="font-medium truncate">{c.title}</div>
+                              <div className="text-xs text-muted-foreground">
+                                {(c.category || 'sans catégorie')} • {(c.status || 'PLANNED')}
+                              </div>
+                            </div>
+                            <div className="flex gap-2">
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                onClick={() => {
+                                  setEditingContributionId(c.id)
+                                  setEditingContributionForm({
+                                    title: c.title || '',
+                                    description: c.description || '',
+                                    category: c.category || '',
+                                    status: c.status || 'PLANNED',
+                                  })
+                                }}
+                                aria-label="Modifier la contribution"
+                              >
+                                <Edit3 className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                onClick={() => handleDeleteContribution(c.id)}
+                                disabled={deletingContributionId === c.id}
+                                aria-label="Supprimer la contribution"
+                              >
+                                {deletingContributionId === c.id ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <Trash2 className="h-4 w-4 text-red-500" />
+                                )}
+                              </Button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })
+                ) : (
+                  <p className="text-sm text-muted-foreground">Aucune contribution pour cet événement.</p>
+                )}
+              </div>
             </div>
 
             <div className="flex gap-2">
