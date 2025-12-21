@@ -170,6 +170,20 @@ export async function DELETE(
 
     const { id } = await params
 
+    // Get poll to check for image
+    const poll = await prisma.poll.findUnique({
+      where: { id },
+      select: { imageUrl: true }
+    })
+
+    // Delete image file if it exists
+    if (poll?.imageUrl && poll.imageUrl.startsWith('/uploads/')) {
+      const { deleteImageFile } = await import('@/lib/imageProcessor')
+      await deleteImageFile(poll.imageUrl).catch((err) => 
+        console.error('Failed to delete poll image:', err)
+      )
+    }
+
     await prisma.poll.delete({
       where: { id },
     })

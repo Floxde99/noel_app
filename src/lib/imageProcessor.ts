@@ -5,7 +5,8 @@ import path from 'path';
 const UPLOAD_DIR = path.join(process.cwd(), 'public', 'uploads');
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB before conversion (no strict limit, family-friendly)
 const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/bmp'];
-const WEBP_QUALITY = 80; // Optimal quality/size ratio
+const WEBP_QUALITY = 75; // Optimized for heavy images: strong compression while keeping good quality
+const MAX_DIMENSION = 3000; // Limit resolution to 3000x3000 for faster loading
 
 export interface ImageUploadResult {
   filename: string;
@@ -51,7 +52,7 @@ export async function processImageToWebP(
     // Convert to WebP with quality optimization
     const webpBuffer = await sharp(buffer)
       .rotate() // Auto-rotate based on EXIF
-      .resize(4000, 4000, {
+      .resize(MAX_DIMENSION, MAX_DIMENSION, {
         fit: 'inside',
         withoutEnlargement: true,
       })

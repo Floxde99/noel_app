@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { useToast } from '@/hooks/use-toast'
 import { formatDate, formatTime, generateEventCode } from '@/lib/utils'
 import {
@@ -96,6 +97,20 @@ export default function AdminPage() {
   const [selectedEventId, setSelectedEventId] = useState<string>('')
   const [newRecipe, setNewRecipe] = useState({ title: '', description: '' })
   const [isLoading, setIsLoading] = useState(true)
+
+  // Confirmation dialogs
+  const [confirmDialog, setConfirmDialog] = useState<{
+    open: boolean
+    title: string
+    description: string
+    onConfirm: () => void
+    variant?: 'danger' | 'warning' | 'info'
+  }>({
+    open: false,
+    title: '',
+    description: '',
+    onConfirm: () => {},
+  })
 
   // Form states
   const [newEvent, setNewEvent] = useState({
@@ -261,18 +276,25 @@ export default function AdminPage() {
   }
 
   const handleDeleteRecipe = async (id: string) => {
-    if (!confirm('Supprimer cette recette ?')) return
-    try {
+    setConfirmDialog({
+      open: true,
+      title: 'Supprimer la recette',
+      description: 'Êtes-vous sûr de vouloir supprimer cette recette ?',
+      variant: 'danger',
+      onConfirm: async () => {
+        try {
       const res = await fetch(`/api/menu/${id}`, { method: 'DELETE', credentials: 'include' })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
         throw new Error(data?.error || 'Impossible de supprimer la recette')
       }
-      toast({ title: 'Recette supprimée', variant: 'success' })
-      fetchMenu(selectedEventId)
-    } catch (e) {
-      toast({ title: 'Erreur', description: e instanceof Error ? e.message : 'Erreur', variant: 'destructive' })
-    }
+          toast({ title: 'Recette supprimée', variant: 'success' })
+          fetchMenu(selectedEventId)
+        } catch (e) {
+          toast({ title: 'Erreur', description: e instanceof Error ? e.message : 'Erreur', variant: 'destructive' })
+        }
+      },
+    })
   }
 
   // Handlers
@@ -370,8 +392,13 @@ export default function AdminPage() {
   }
 
   const handleDeleteUser = async (userId: string) => {
-    if (!confirm('Supprimer cet utilisateur ?')) return
-    try {
+    setConfirmDialog({
+      open: true,
+      title: 'Supprimer l\'utilisateur',
+      description: 'Êtes-vous sûr de vouloir supprimer cet utilisateur ?',
+      variant: 'danger',
+      onConfirm: async () => {
+        try {
       const response = await fetch(`/api/admin/users/${userId}`, {
         method: 'DELETE',
         credentials: 'include',
@@ -381,17 +408,23 @@ export default function AdminPage() {
         const data = await response.json()
         throw new Error(data.error || "Impossible de supprimer l'utilisateur")
       }
-      toast({ title: 'Utilisateur supprimé ✅', variant: 'success' })
-      fetchData()
-    } catch (error) {
-      toast({ title: 'Erreur', description: error instanceof Error ? error.message : 'Une erreur est survenue', variant: 'destructive' })
-    }
+          toast({ title: 'Utilisateur supprimé ✅', variant: 'success' })
+          fetchData()
+        } catch (error) {
+          toast({ title: 'Erreur', description: error instanceof Error ? error.message : 'Une erreur est survenue', variant: 'destructive' })
+        }
+      },
+    })
   }
 
   const handleDeleteCode = async (id: string) => {
-    if (!confirm('Supprimer ce code ?')) return
-
-    try {
+    setConfirmDialog({
+      open: true,
+      title: 'Supprimer le code',
+      description: 'Êtes-vous sûr de vouloir supprimer ce code d\'accès ?',
+      variant: 'danger',
+      onConfirm: async () => {
+        try {
       const response = await fetch(`/api/admin/codes/${id}`, {
         method: 'DELETE',
         credentials: 'include',
@@ -401,18 +434,24 @@ export default function AdminPage() {
         const data = await response.json()
         throw new Error(data.error || 'Erreur lors de la suppression')
       }
-      toast({ title: 'Code supprimé ✅', variant: 'success' })
-      fetchData()
-    } catch (error) {
-      console.error('Delete code error:', error)
-      toast({ title: 'Erreur', description: error instanceof Error ? error.message : 'Impossible de supprimer le code', variant: 'destructive' })
-    }
+          toast({ title: 'Code supprimé ✅', variant: 'success' })
+          fetchData()
+        } catch (error) {
+          console.error('Delete code error:', error)
+          toast({ title: 'Erreur', description: error instanceof Error ? error.message : 'Impossible de supprimer le code', variant: 'destructive' })
+        }
+      },
+    })
   }
 
   const handleClosePoll = async (pollId: string) => {
-    if (!confirm('Fermer ce sondage ? Les 2 options les plus votées seront ajoutées aux contributions.')) return
-
-    try {
+    setConfirmDialog({
+      open: true,
+      title: 'Fermer le sondage',
+      description: 'Les 2 options les plus votées seront ajoutées aux contributions. Voulez-vous continuer ?',
+      variant: 'warning',
+      onConfirm: async () => {
+        try {
       const response = await fetch(`/api/polls/${pollId}/close`, {
         method: 'POST',
         credentials: 'include',
@@ -420,22 +459,28 @@ export default function AdminPage() {
 
       if (response.ok) {
         const data = await response.json()
-        toast({
-          title: 'Sondage fermé ! 📊',
-          description: data.message,
-          variant: 'success',
-        })
-        fetchData()
+          toast({
+            title: 'Sondage fermé ! 📊',
+            description: data.message,
+            variant: 'success',
+          })
+          fetchData()
+        }
+      } catch (error) {
+        toast({ title: 'Erreur', variant: 'destructive' })
       }
-    } catch (error) {
-      toast({ title: 'Erreur', variant: 'destructive' })
-    }
+      },
+    })
   }
 
   const handleDeleteMessage = async (messageId: string) => {
-    if (!confirm('Supprimer ce message ?')) return
-
-    try {
+    setConfirmDialog({
+      open: true,
+      title: 'Supprimer le message',
+      description: 'Êtes-vous sûr de vouloir supprimer ce message ?',
+      variant: 'danger',
+      onConfirm: async () => {
+        try {
       const response = await fetch(`/api/admin/messages/${messageId}`, {
         method: 'DELETE',
         credentials: 'include',
@@ -445,17 +490,19 @@ export default function AdminPage() {
         },
       })
 
-      if (response.ok) {
-        toast({ title: 'Message supprimé ✅', variant: 'success' })
-        fetchData()
-      } else {
-        const data = await response.json()
-        throw new Error(data.error || 'Impossible de supprimer le message')
-      }
-    } catch (error) {
-      console.error('Error deleting message:', error)
-      toast({ title: 'Erreur', description: error instanceof Error ? error.message : 'Une erreur est survenue', variant: 'destructive' })
-    }
+          if (response.ok) {
+            toast({ title: 'Message supprimé ✅', variant: 'success' })
+            fetchData()
+          } else {
+            const data = await response.json()
+            throw new Error(data.error || 'Impossible de supprimer le message')
+          }
+        } catch (error) {
+          console.error('Error deleting message:', error)
+          toast({ title: 'Erreur', description: error instanceof Error ? error.message : 'Une erreur est survenue', variant: 'destructive' })
+        }
+      },
+    })
   }
 
   const handleCreatePoll = async () => {
@@ -1072,15 +1119,45 @@ export default function AdminPage() {
                       <div className="text-sm text-muted-foreground mb-2">
                         {poll.event.name} • {poll._count.votes} votes
                       </div>
-                      {!poll.isClosed && (
+                      <div className="flex gap-2">
+                        {!poll.isClosed && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleClosePoll(poll.id)}
+                          >
+                            Fermer et créer contributions
+                          </Button>
+                        )}
                         <Button
                           size="sm"
-                          variant="outline"
-                          onClick={() => handleClosePoll(poll.id)}
+                          variant="destructive"
+                          onClick={() => {
+                            setConfirmDialog({
+                              open: true,
+                              title: 'Supprimer le sondage',
+                              description: `Êtes-vous sûr de vouloir supprimer le sondage "${poll.title}" ?`,
+                              variant: 'danger',
+                              onConfirm: async () => {
+                                try {
+                                  const response = await fetch(`/api/admin/polls/${poll.id}`, {
+                                    method: 'DELETE',
+                                    credentials: 'include',
+                                    headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+                                  })
+                                  if (!response.ok) throw new Error('Erreur')
+                                  toast({ title: 'Sondage supprimé ✅', variant: 'success' })
+                                  fetchData()
+                                } catch (error) {
+                                  toast({ title: 'Erreur', variant: 'destructive' })
+                                }
+                              },
+                            })
+                          }}
                         >
-                          Fermer et créer contributions
+                          <Trash2 className="h-4 w-4" />
                         </Button>
-                      )}
+                      </div>
                     </div>
                     ))
                   )}
@@ -1140,6 +1217,16 @@ export default function AdminPage() {
           </Card>
         )}
       </main>
+
+      {/* Confirmation Dialog */}
+      <ConfirmDialog
+        open={confirmDialog.open}
+        onOpenChange={(open) => setConfirmDialog({ ...confirmDialog, open })}
+        onConfirm={confirmDialog.onConfirm}
+        title={confirmDialog.title}
+        description={confirmDialog.description}
+        variant={confirmDialog.variant}
+      />
     </div>
   )
 }

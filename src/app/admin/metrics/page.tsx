@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { useAuth } from '@/components/providers/auth-provider'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { ArrowLeft, BarChart3, Database, HardDrive, Image as ImageIcon, RefreshCw, Activity } from 'lucide-react'
 import Image from 'next/image'
 
@@ -15,6 +16,20 @@ export default function MetricsPage() {
   const [apiMetrics, setApiMetrics] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [autoRefresh, setAutoRefresh] = useState(true)
+
+  // Confirmation dialog
+  const [confirmDialog, setConfirmDialog] = useState<{
+    open: boolean
+    title: string
+    description: string
+    onConfirm: () => void
+    variant?: 'danger' | 'warning'
+  }>({
+    open: false,
+    title: '',
+    description: '',
+    onConfirm: () => {},
+  })
 
   useEffect(() => {
     if (!authLoading && (!isAuthenticated || user?.role !== 'ADMIN')) {
@@ -347,24 +362,31 @@ export default function MetricsPage() {
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={async () => {
-                          if (!window.confirm('Supprimer tous les fichiers orphelins ? Cette action est irréversible.')) return
-                          try {
-                            const res = await fetch('/api/admin/uploads', {
-                              method: 'POST',
-                              credentials: 'include',
-                              headers: {
-                                'Content-Type': 'application/json',
-                                ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-                              },
-                              body: JSON.stringify({ action: 'delete-orphans' }),
-                            })
-                            if (res.ok) {
-                              await fetchMetrics()
-                            }
-                          } catch (e) {
-                            console.error('Delete orphans failed', e)
-                          }
+                        onClick={() => {
+                          setConfirmDialog({
+                            open: true,
+                            title: 'Supprimer les fichiers orphelins',
+                            description: 'Cette action supprimera définitivement tous les fichiers orphelins. Voulez-vous continuer ?',
+                            variant: 'danger',
+                            onConfirm: async () => {
+                              try {
+                                const res = await fetch('/api/admin/uploads', {
+                                  method: 'POST',
+                                  credentials: 'include',
+                                  headers: {
+                                    'Content-Type': 'application/json',
+                                    ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+                                  },
+                                  body: JSON.stringify({ action: 'delete-orphans' }),
+                                })
+                                if (res.ok) {
+                                  await fetchMetrics()
+                                }
+                              } catch (e) {
+                                console.error('Delete orphans failed', e)
+                              }
+                            },
+                          })
                         }}
                       >
                         Supprimer les orphelins
@@ -470,24 +492,31 @@ export default function MetricsPage() {
                                 variant="destructive"
                                 size="sm"
                                 className="flex-1"
-                                onClick={async () => {
-                                  if (!window.confirm('Retirer l\'image (références en BDD supprimées) ?')) return
-                                  try {
-                                    const res = await fetch('/api/admin/uploads', {
-                                      method: 'POST',
-                                      credentials: 'include',
-                                      headers: {
-                                        'Content-Type': 'application/json',
-                                        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-                                      },
-                                      body: JSON.stringify({ action: 'moderate-image', url: f.url }),
-                                    })
-                                    if (res.ok) {
-                                      await fetchMetrics()
-                                    }
-                                  } catch (e) {
-                                    console.error('Moderation failed', e)
-                                  }
+                                onClick={() => {
+                                  setConfirmDialog({
+                                    open: true,
+                                    title: 'Retirer l\'image',
+                                    description: 'Cette action supprimera toutes les références en base de données puis supprimera le fichier. Voulez-vous continuer ?',
+                                    variant: 'danger',
+                                    onConfirm: async () => {
+                                      try {
+                                        const res = await fetch('/api/admin/uploads', {
+                                          method: 'POST',
+                                          credentials: 'include',
+                                          headers: {
+                                            'Content-Type': 'application/json',
+                                            ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+                                          },
+                                          body: JSON.stringify({ action: 'moderate-image', url: f.url }),
+                                        })
+                                        if (res.ok) {
+                                          await fetchMetrics()
+                                        }
+                                      } catch (e) {
+                                        console.error('Moderation failed', e)
+                                      }
+                                    },
+                                  })
                                 }}
                               >
                                 Retirer
@@ -622,6 +651,16 @@ export default function MetricsPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Confirmation Dialog */}
+      <ConfirmDialog
+        open={confirmDialog.open}
+        onOpenChange={(open) => setConfirmDialog({ ...confirmDialog, open })}
+        onConfirm={confirmDialog.onConfirm}
+        title={confirmDialog.title}
+        description={confirmDialog.description}
+        variant={confirmDialog.variant}
+      />
     </div>
   )
 }
