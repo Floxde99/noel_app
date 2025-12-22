@@ -53,3 +53,17 @@ export function generateEventCode(prefix: string = 'NOEL'): string {
   const randomPart = Math.random().toString(36).substring(2, 6).toUpperCase()
   return `${prefix}-${year}-${randomPart}`
 }
+/**
+ * Fetch wrapper that automatically includes credentials (cookies)
+ * Use this instead of fetch() when you need authentication via cookies
+ * This ensures refresh token cookies are sent with every request
+ */
+export async function fetchWithAuth(
+  url: string,
+  options?: RequestInit
+): Promise<Response> {
+  return fetch(url, {
+    ...options,
+    credentials: 'include',  // Include cookies automatically
+  })
+}

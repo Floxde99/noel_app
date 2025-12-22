@@ -12,6 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { useToast } from '@/hooks/use-toast'
+import { fetchWithAuth } from '@/lib/utils'
 import { ArrowLeft, BarChart3, Edit, Plus, X } from 'lucide-react'
 
 export default function PollDetailsPage({ params }: { params: { id: string } }) {
@@ -45,10 +46,7 @@ export default function PollDetailsPage({ params }: { params: { id: string } }) 
 
   const loadPoll = useCallback(async () => {
     try {
-      const token = localStorage.getItem('access_token')
-      const res = await fetch(`/api/admin/polls/${params.id}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
+      const res = await fetchWithAuth(`/api/admin/polls/${params.id}`)
       if (!res.ok) throw new Error('Erreur')
       const data = await res.json()
       setPoll(data)
@@ -79,16 +77,14 @@ export default function PollDetailsPage({ params }: { params: { id: string } }) 
       variant: 'warning',
       onConfirm: async () => {
         try {
-      const token = localStorage.getItem('access_token')
-      const res = await fetch(`/api/admin/polls/${params.id}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ isClosed: true }),
-      })
-      if (!res.ok) throw new Error('Erreur')
+          const res = await fetchWithAuth(`/api/admin/polls/${params.id}`, {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ isClosed: true }),
+          })
+          if (!res.ok) throw new Error('Erreur')
           toast({ title: 'Sondage fermé !' })
           loadPoll()
         } catch (error) {
@@ -106,12 +102,10 @@ export default function PollDetailsPage({ params }: { params: { id: string } }) 
       variant: 'danger',
       onConfirm: async () => {
         try {
-      const token = localStorage.getItem('access_token')
-      const res = await fetch(`/api/admin/polls/${params.id}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      if (!res.ok) throw new Error('Erreur')
+          const res = await fetchWithAuth(`/api/admin/polls/${params.id}`, {
+            method: 'DELETE',
+          })
+          if (!res.ok) throw new Error('Erreur')
           toast({ title: 'Sondage supprimé !' })
           router.push('/admin/polls')
         } catch (error) {
@@ -131,12 +125,10 @@ export default function PollDetailsPage({ params }: { params: { id: string } }) 
     }
 
     try {
-      const token = localStorage.getItem('access_token')
-      const res = await fetch(`/api/admin/polls/${params.id}`, {
+      const res = await fetchWithAuth(`/api/admin/polls/${params.id}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           title: editData.title,

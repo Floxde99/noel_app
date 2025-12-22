@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useToast } from '@/hooks/use-toast'
+import { fetchWithAuth } from '@/lib/utils'
 import { ArrowLeft } from 'lucide-react'
 
 export default function EditUserPage({ params }: { params: Promise<{ id: string }> }) {
@@ -25,11 +26,7 @@ export default function EditUserPage({ params }: { params: Promise<{ id: string 
 
   const loadUser = useCallback(async () => {
     try {
-      const token = localStorage.getItem('access_token')
-      const res = await fetch(`/api/admin/users/${id}`, {
-        credentials: 'include',
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-      })
+      const res = await fetchWithAuth(`/api/admin/users/${id}`)
       if (!res.ok) throw new Error('Erreur')
       const data = await res.json()
       setUser(data)
@@ -52,12 +49,10 @@ export default function EditUserPage({ params }: { params: Promise<{ id: string 
 
   const handleSave = async () => {
     try {
-      const token = localStorage.getItem('access_token')
-      const res = await fetch(`/api/admin/users/${id}`, {
+      const res = await fetchWithAuth(`/api/admin/users/${id}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify(formData),
       })

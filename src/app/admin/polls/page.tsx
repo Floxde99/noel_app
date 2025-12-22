@@ -11,6 +11,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { useToast } from '@/hooks/use-toast'
+import { fetchWithAuth } from '@/lib/utils'
 import { ArrowLeft, BarChart3, Plus, X, Edit, Trash2, Eye } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 
@@ -70,12 +71,9 @@ export default function AdminPollsPage() {
 
   const loadData = async () => {
     try {
-      const token = localStorage.getItem('access_token')
-      const headers = { Authorization: `Bearer ${token}` }
-
       const [pollsRes, eventsRes] = await Promise.all([
-        fetch('/api/admin/polls', { headers }),
-        fetch('/api/admin/events', { headers }),
+        fetchWithAuth('/api/admin/polls'),
+        fetchWithAuth('/api/admin/events'),
       ])
 
       if (pollsRes.ok) {
@@ -103,12 +101,10 @@ export default function AdminPollsPage() {
     }
 
     try {
-      const token = localStorage.getItem('access_token')
-      const res = await fetch('/api/admin/polls', {
+      const res = await fetchWithAuth('/api/admin/polls', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           title: formData.title,
@@ -140,10 +136,8 @@ export default function AdminPollsPage() {
       description: `Êtes-vous sûr de vouloir supprimer le sondage "${title}" ?`,
       onConfirm: async () => {
         try {
-          const token = localStorage.getItem('access_token')
-          const res = await fetch(`/api/admin/polls/${id}`, {
+          const res = await fetchWithAuth(`/api/admin/polls/${id}`, {
             method: 'DELETE',
-            headers: { Authorization: `Bearer ${token}` },
           })
 
           if (!res.ok) throw new Error('Erreur')
