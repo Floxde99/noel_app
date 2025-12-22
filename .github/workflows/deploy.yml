@@ -31,6 +31,10 @@ jobs:
           git fetch origin
           git reset --hard origin/main
 
+          set -a
+          source .env.production
+          set +a
+
           echo "→ Install deps"
           npm ci --omit=dev
 
