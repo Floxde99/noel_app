@@ -36,7 +36,7 @@ jobs:
           set +a
 
           echo "→ Install deps"
-          npm ci --omit=dev
+          npm ci 
 
           echo "→ Prisma"
           npx prisma generate
