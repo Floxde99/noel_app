@@ -18,13 +18,13 @@ export const metadata: Metadata = {
   description: 'Organisez vos fêtes de Noël en famille - Réveillon, déjeuner, cadeaux et plus encore !',
   icons: {
     icon: [
-      { url: '/favincon/favicon.ico', sizes: 'any' },
-      { url: '/favincon/favicon-16.png', sizes: '16x16', type: 'image/png' },
-      { url: '/favincon/favicon-32.png', sizes: '32x32', type: 'image/png' },
-      { url: '/favincon/favicon-48.png', sizes: '48x48', type: 'image/png' },
-      { url: '/favincon/favicon-64.png', sizes: '64x64', type: 'image/png' },
+      { url: '/favicon/favicon.ico', sizes: 'any' },
+      { url: '/favicon/favicon-16.png', sizes: '16x16', type: 'image/png' },
+      { url: '/favicon/favicon-32.png', sizes: '32x32', type: 'image/png' },
+      { url: '/favicon/favicon-48.png', sizes: '48x48', type: 'image/png' },
+      { url: '/favicon/favicon-64.png', sizes: '64x64', type: 'image/png' },
     ],
-    apple: '/favincon/apple-touch-icon.png',
+    apple: '/favicon/apple-touch-icon.png',
   },
   appleWebApp: {
     capable: true,

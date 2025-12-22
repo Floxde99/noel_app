@@ -36,8 +36,8 @@ export function sendBrowserNotification(options: NotificationOptions): Notificat
 
   const notification = new Notification(options.title, {
     body: options.body,
-    icon: options.icon || '/favincon/apple-touch-icon.png',
-    badge: options.badge || '/favincon/favicon-32x32.png',
+    icon: options.icon || '/favicon/apple-touch-icon.png',
+    badge: options.badge || '/favicon/favicon-32.png',
     tag: options.tag,
     data: options.data,
     requireInteraction: false,
