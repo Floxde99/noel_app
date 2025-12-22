@@ -1,24 +1,36 @@
+# Node
 node_modules/
+
+# Next.js
 .next/
 out/
+
+# Env
 .env
 .env.production
 .env.local
 .env.*.local
-.env.example
+
+# Logs
 *.log
 npm-debug.log*
+
+# OS / Tools
 .DS_Store
-*.pem
+.vscode/
 .vercel
 .turbo
 coverage/
+
+# Prisma
 prisma/*.db
 prisma/*.db-journal
-public/uploads/*.webp
-package-lock.json
+
+# Uploads (runtime only)
+public/uploads/
+
+# Docker (si non utilisé en prod)
 docker-compose.yml
 Dockerfile
 .dockerignore
-.vscode/
 *.md

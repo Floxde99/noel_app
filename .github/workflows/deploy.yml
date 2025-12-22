@@ -27,17 +27,21 @@ jobs:
           set -e
           cd ${{ secrets.VPS_PATH }}
 
-          export $(grep -v '^#' .env.production | xargs)
+          echo "→ Sync repo"
+          git fetch origin
+          git reset --hard origin/main
 
+          echo "→ Install deps"
+          npm ci --omit=dev
 
-          git pull --rebase origin main
-          npm ci
-
+          echo "→ Prisma"
           npx prisma generate
           npx prisma migrate deploy
 
+          echo "→ Build"
           npm run build
 
-          pm2 reload ecosystem.config.js
+          echo "→ Reload app"
+          pm2 reload ecosystem.config.js --env production
 
           EOF
