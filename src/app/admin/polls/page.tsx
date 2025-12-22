@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
@@ -65,11 +65,7 @@ export default function AdminPollsPage() {
     options: ['', ''],
   })
 
-  useEffect(() => {
-    loadData()
-  }, [])
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       const [pollsRes, eventsRes] = await Promise.all([
         fetchWithAuth('/api/admin/polls'),
@@ -89,7 +85,11 @@ export default function AdminPollsPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [toast])
+
+  useEffect(() => {
+    loadData()
+  }, [loadData])
 
   const handleCreatePoll = async (e: React.FormEvent) => {
     e.preventDefault()

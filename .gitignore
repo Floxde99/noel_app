@@ -2,9 +2,10 @@ node_modules/
 .next/
 out/
 .env
+.env.production
 .env.local
 .env.*.local
-.en.example
+.env.example
 *.log
 npm-debug.log*
 .DS_Store
